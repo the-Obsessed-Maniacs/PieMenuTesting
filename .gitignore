@@ -75,4 +75,3 @@ CMakeLists.txt.user*
 /.vs
 /build
 /out
-.gitignore
