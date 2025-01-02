@@ -1,4 +1,6 @@
-#include "qpiemenu.h"
+ï»¿#include "qpiemenu.h"
+
+#include "Helpers.h"
 
 #include <QEvent>
 #include <QPaintEvent>
@@ -110,7 +112,7 @@ void QPieMenu::calculateItems()
 	_itemRects.clear();
 	_itemRects.resize( actions().count() + 1, {} );
 	// wir berechnen hier actions_count + 1 Item-Rects, die unser Menu ausmachen sollen.
-	// Das letzte Rect steht für den Menutitel + Close - Button.
+	// Das letzte Rect steht fÃ¼r den Menutitel + Close - Button.
 	// Die Rects sind alle initialisiert auf "invalid".
 	auto				 qfm   = fontMetrics();
 	auto				 style = this->style();
@@ -126,7 +128,7 @@ void QPieMenu::calculateItems()
 	const auto panelWidth = style->pixelMetric( QStyle::PM_MenuPanelWidth, &mopt, this );
 	const auto icone	  = style->pixelMetric( QStyle::PM_SmallIconSize, &mopt, this );
 	int		   i		  = 0;
-	// Zuerst berechnen wir die Größen der Items
+	// Zuerst berechnen wir die GrÃ¶ÃŸen der Items
 	for ( ; i < actions().count(); ++i )
 	{
 		// Each Action needs its size or is an invisible separator with a default size.
@@ -210,12 +212,12 @@ QList< QPointF > QPieMenu::baseCalcPositions( QList< QRectF > &ir )
 {
 	/**************************************************************************************************
 	 * Grundlegende Strategie zur Anordnung der Menuelemente:
-	 * - Start bei ca. 1 Uhr / 166° (alles davor erhöht nur den Radius)
-	 * - minimale halbe Manhattan-Länge der Item-Größen als Mindestradius
+	 * - Start bei ca. 1 Uhr / 166Â° (alles davor erhÃ¶ht nur den Radius)
+	 * - minimale halbe Manhattan-LÃ¤nge der Item-GrÃ¶ÃŸen als Mindestradius
 	 * - Item platzieren mit aktuellem Winkel und Radius.
 	 *  -> Suche nach der richtigen Richtung: wir wollen in negative Winkelrichtung gehen, ergo
-	 *können wir alle Anstiege umdrehen (schonmal eine gute Erkenntnis) # Kreisbögen! # wie wäre
-	 *eine Weiterschreit-Funktion, die die länge der
+	 *kÃ¶nnen wir alle Anstiege umdrehen (schonmal eine gute Erkenntnis) # KreisbÃ¶gen! # wie wÃ¤re
+	 *eine Weiterschreit-Funktion, die die lÃ¤nge der
 	 *************************************************************************************************/
 	QRectF			 masterBR( ir.last() );
 	QList< QPointF > res( ir.count() );
@@ -247,7 +249,7 @@ QList< QPointF > QPieMenu::baseCalcPositions( QList< QRectF > &ir )
 						  * QPointF::dotProduct( -sc1.transposed(),
 												 { ir[ i + 1 ].width(), ir[ i + 1 ].height() } );
 			auto delta_w = 360. * bogen2 / ( 2 * M_PI * r0i ) + delta_w1;
-			// todo: überlappungscheck ...
+			// todo: Ã¼berlappungscheck ...
 			w0i -= delta_w;
 		}
 	}

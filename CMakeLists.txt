@@ -19,6 +19,12 @@ set(PROJECT_SOURCES
         mainwindow.cpp
         mainwindow.h
         mainwindow.ui
+		SelfRegFactory.h
+		Placements.h
+		Placements.cpp
+		Helpers.h
+		BerechnungsModell.h
+		BerechnungsModell.cpp
 
         ${TS_FILES}
 )

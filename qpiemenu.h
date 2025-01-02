@@ -7,11 +7,6 @@
 
 class QStylePainter;
 
-inline QPointF qSinCos( qreal radians )
-{
-	return QPointF{ qSin( radians ), qCos( radians ) };
-}
-
 class QPieMenu : public QMenu
 {
 	Q_OBJECT

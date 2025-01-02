@@ -4,9 +4,13 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include "BerechnungsModell.h"
+#include "Helpers.h"
+#include "Placements.h"
 #include "ui_mainwindow.h"
 
 #include <QAbstractGraphicsShapeItem>
+#include <QAbstractItemModel>
 #include <QMainWindow>
 #include <QPropertyAnimation>
 
@@ -16,45 +20,6 @@ class QActionGroup;
 class QLabel;
 class QMenu;
 class QGraphicsView;
-constexpr QPointF operator*( QPointF a, QPointF b )
-{
-	return { a.x() * b.x(), a.y() * b.y() };
-}
-constexpr QPointF fromSize( const QSizeF &a )
-{
-	return { a.width(), a.height() };
-}
-constexpr QPointF fromSize( const QSize &a )
-{
-	return fromSize( a.toSizeF() );
-}
-constexpr QPointF fromSize( const QRectF &a )
-{
-	return fromSize( a.size() );
-}
-constexpr QPointF richtung( QPointF d )
-{
-	auto sub = []( auto sub ) { return qAbs( sub ) < 0.000001 ? 0 : sub > 0 ? 1. : -1.; };
-	return { sub( d.x() ), sub( d.y() ) };
-}
-inline qreal normDegrees( qreal a )
-{
-	return fmod( a, 360. ) + ( a < 0 ? 360. : 0. );
-}
-inline qreal degreesDistance( qreal from, qreal to )
-{
-	// Zwischen 2 Winkeln haben wir immer eine positive und eine negative Distanz.
-	// Wir suchen aber die Distanz in eine Richtung!
-	auto f_clean = fmod< double >( from, 360. ); // der Wert liegt jetzt zwischen [-360,360]
-	auto t_clean = fmod< double >( to, 360. );	 // dito
-	auto diff1	 = t_clean - f_clean;			 // Die Differenz auch.
-	return diff1 + ( diff1 > 180 ? -360 : diff1 < -180 ? 360 : 0 );
-}
-template < typename T >
-int qSgn( T val )
-{
-	return ( T( 0 ) < val ) - ( val < T( 0 ) );
-}
 QT_END_NAMESPACE
 
 //! [0]
@@ -75,6 +40,9 @@ class MainWindow
 	void showTimeChanged( qreal newShowTime );
 
   private slots:
+	void		grabAnimParams();
+	void		placementChanged( int );
+	void		radiusPolicyChanged( int );
 	inline void clearItems( bool onlyRecalculate = false );
 	void		animStateChange( QAbstractAnimation::State );
 	void		animDirectionChange( QAbstractAnimation::Direction newDirection );
@@ -84,14 +52,6 @@ class MainWindow
 	void		menuAbout2show();
 	void		computePositions();
 	void		animatePositions();
-
-	void		animate_0();
-	void		calculate_1();
-	void		animate_1();
-	void		calculate_2();
-	void		animate_2();
-	void		calculate_3();
-	void		animate_3();
 
 	void		newFile();
 	void		open();
@@ -150,6 +110,7 @@ class MainWindow
 	QPropertyAnimation				anim;
 	QGraphicsWidget				   *x_button;
 	QList< QGraphicsProxyWidget * > items;
+	Intersector						_boxes;
 	struct c3_item
 	{
 		QAbstractGraphicsShapeItem *item{ nullptr };
@@ -199,23 +160,6 @@ class MainWindow
 	QList< c3_item * >			   c3_items;
 	QGraphicsItemGroup			   c3_group;
 	QList< QPair< qreal, qreal > > data;
-
-	struct Intersector : public QList< QRectF >
-	{
-		QRectF lastIntersection;
-		bool   add( QRectF r )
-		{
-			for ( auto i : *this )
-				if ( r.intersects( i ) )
-				{
-					lastIntersection = r.intersected( i );
-					return false;
-				};
-			lastIntersection = {};
-			append( r );
-			return true;
-		}
-	};
 };
 //! [3]
 
