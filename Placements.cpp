@@ -2,17 +2,46 @@
 
 #include <QtWidgets>
 
+// Mal ein Versuch, die Winkeldifferenzen-Geschichte aus Strategie 3 zu vereinfachen:
+class BestDelta
+{
+  public:
+	__forceinline void init( qreal direction, qreal reference_angle )
+	{
+		bad = -( good = std::numeric_limits< qreal >::max() );
+		dir = direction;
+		w0	= reference_angle;
+	}
+	__forceinline void addAngle( qreal a )
+	{
+		auto d = degreesDistance( w0, a ) * dir;
+		if ( d > 0 ) good = qMin( good, d );
+		else bad = qMax( bad, d );
+	}
+	bool  hasGood() const { return good < std::numeric_limits< qreal >::max(); }
+	bool  hasBad() const { return bad > -std::numeric_limits< qreal >::max(); }
+	qreal best() const
+	{
+		if ( hasGood() ) return good * dir;
+		else if ( hasBad() ) return bad * dir;
+		else return 0.0;
+	}
+
+  private:
+	qreal good, bad, dir, w0;
+};
+
 ersterVersuch::ersterVersuch()
 	: StrategieBasis::Registrar< ersterVersuch >()
 {
 	_description = QObject::tr( "erste Idee: \"Aufdrehen\"" );
 }
 
-void		   ersterVersuch::calculateItems( Items & items_with_sizes ) {}
+void	  ersterVersuch::calculateItems( Items& items_with_sizes ) {}
 
-QList< qreal > ersterVersuch::animateItems( Items & items, qreal progress )
+Opacities ersterVersuch::animateItems( Items& items, qreal progress )
 {
-	QList< qreal > result;
+	Opacities result;
 	if ( !items.isEmpty() )
 	{
 		// -> should position the items according to time and stop the animation if no
@@ -40,7 +69,7 @@ StrategieNo2::StrategieNo2()
 			 << QObject::tr( "min( n*h/4, mhML )" );
 }
 
-void StrategieNo2::calculateItems( Items & items )
+void StrategieNo2::calculateItems( Items& items )
 {
 	if ( items.isEmpty() ) return;
 	// Wir beschaffen uns die mittlere Breite
@@ -110,9 +139,9 @@ void StrategieNo2::calculateItems( Items & items )
 	} while ( badRadius );
 }
 
-QList< qreal > StrategieNo2::animateItems( Items & items, qreal progress )
+Opacities StrategieNo2::animateItems( Items& items, qreal progress )
 {
-	QList< qreal > result;
+	Opacities result;
 	if ( items.isEmpty() ) return result;
 	if ( data.count() != items.count() ) calculateItems( items );
 	auto t = progress;
@@ -137,7 +166,7 @@ StrategieNo3::StrategieNo3()
 	_description = QObject::tr( "die eleganteste Iterationslösung" );
 }
 
-void StrategieNo3::calculateItems( Items & items )
+void StrategieNo3::calculateItems( Items& items )
 {
 	if ( items.isEmpty() ) return;
 	data.clear();
@@ -150,9 +179,10 @@ void StrategieNo3::calculateItems( Items & items )
 	int			   btc( 1 ), ic( items.count() );
 	auto		   baseHeight = ( ( items.first().height() + ds ) * items.count() /* - ds*/ );
 	qreal		   r( baseHeight / 4 ), w( w0 ), np, off;
-	auto		   dbg = qDebug() << "StrategieNo3 - Startwerte: w0=" << w0 << "r0=" << r;
+	// auto		   dbg = qDebug() << "StrategieNo3 - Startwerte: w0=" << w0 << "r0=" << r;
 	Intersector	   usedSpace;
 	QList< qreal > winkelz, delta_w, bad_deltas;
+	auto		   st = __rdtsc();
 	for ( int i = 0; i < ic; ++i )
 	{
 		data.append( { r, w } );
@@ -182,9 +212,9 @@ void StrategieNo3::calculateItems( Items & items )
 			// Diese Liste dürfte nun maximal 8 Winkel enthalten, bauen wir daraus mal eben deltas
 			delta_w.clear();
 			for ( auto i : winkelz ) delta_w << degreesDistance( w, i );
-			dbg << "\n\tItem #" << i << QSizeF( sz.x(), sz.y() ) << "@ r=" << r << "w=" << w
-				<< "c=" << c << "next possible angles:" << winkelz << "deltas:" << delta_w;
-			// sortierte Liste, wir wollen ja den kleinstmöglichen Schritt gehen
+			// dbg << "\n\tItem #" << i << QSizeF( sz.x(), sz.y() ) << "@ r=" << r << "w=" << w
+			//	<< "c=" << c << "next possible angles:" << winkelz << "deltas:" << delta_w;
+			//  sortierte Liste, wir wollen ja den kleinstmöglichen Schritt gehen
 			std::sort( delta_w.begin(), delta_w.end() );
 			// falls es unterschiedliche delta-Vorzeichen gibt
 			// -> parken wir die zwischen, die falsch herum sind
@@ -208,50 +238,155 @@ void StrategieNo3::calculateItems( Items & items )
 			if ( qAbs( delta ) > .001 && ww < 350.
 				 && usedSpace.add( { c - 0.5 * nxt_sz, c + 0.5 * nxt_sz } ) )
 			{
-				dbg << "-> selected delta:" << delta;
+				// dbg << "-> selected delta:" << delta;
 				w += delta;
 				sz = nxt_sz;
 			} else {
-				if ( ww >= 360. ) dbg << "=> Circle is overfilled.";
-				else if ( qAbs( delta ) > .001 )
-					dbg << "=> overlapping items detected @" << usedSpace.lastIntersection;
-				else dbg << "=> no follow-up-angles found.";
-				// keine Winkel übrig?  Ergo keine Platzierung möglich.  Mehr Platz, bitte!
+				// if ( ww >= 360. ) dbg << "=> Circle is overfilled.";
+				// else if ( qAbs( delta ) > .001 )
+				//	dbg << "=> overlapping items detected @" << usedSpace.lastIntersection;
+				// else dbg << "=> no follow-up-angles found.";
+				//  keine Winkel übrig?  Ergo keine Platzierung möglich.  Mehr Platz, bitte!
 				if ( btc++ > 5 ) // bzw. Abbruch nach 5 Iterationsversuchen.
 					break;
-				if ( r < baseHeight / 3 ) r = baseHeight / 3;
-				else if ( r < baseHeight / 2 ) r = baseHeight / 2;
+				if ( r < baseHeight / 3 ) r += baseHeight / 30;
+				else if ( r < baseHeight / 2 ) r += baseHeight / 20;
 				else r *= 1.05;
 				i  = -1;
 				w  = w0;
 				ww = 0;
 				data.clear();
 				usedSpace.clear();
-				dbg << "Retry with new r=" << r;
+				// dbg << "Retry with new r=" << r;
 			}
 		} else
-			dbg << "\n\tItem #" << i << QSizeF( sz.x(), sz.y() ) << "@ r=" << r << "w=" << w
-				<< "c=" << r * qSinCos( qDegreesToRadians( w ) ) << "\nDONE with calculate_2().";
+			/*dbg << "\n\tItem #" << i << QSizeF( sz.x(), sz.y() ) << "@ r=" << r << "w=" << w
+				<< "c=" << r * qSinCos( qDegreesToRadians( w ) ) << "\nDONE with calculate_3()."*/
+			;
 	}
+	auto et = __rdtsc();
+	qDebug()
+		/*dbg */
+		<< "Strategie No°3 took" << ( et - st ) << "cycles.";
 	items = usedSpace;
 }
 
-QList< qreal > StrategieNo3::animateItems( Items & items, qreal progress )
+Opacities animate3( Intersector& items, qreal t, qreal w0, RadiusAngles& data )
 {
-	QList< qreal > result;
+	Opacities result;
 	if ( items.isEmpty() ) return result;
-	if ( data.count() != items.count() ) calculateItems( items );
-	auto t = progress;
 	for ( int i( 0 ); i < items.count(); ++i )
 	{
 		// smoothstep-Fenster für t: i*1/items.count()
 		auto t_i = superSmoothStep( t, 0.3, 0.7, i, items.count() );
 		auto r	 = data[ i ].first;
 		auto w	 = data[ i ].second;
-		auto w0	 = startAngle();
+
 		items[ i ].moveCenter( qSinCos( qDegreesToRadians( w0 + t_i * ( w - w0 ) ) )
 							   * qSin( t_i * M_PI_2 ) * r );
 		result.append( t_i );
 	}
 	return result;
+}
+
+Opacities StrategieNo3::animateItems( Items& items, qreal progress )
+{
+	if ( data.count() != items.count() ) calculateItems( items );
+	return animate3( items, progress, startAngle(), data );
+}
+
+StrategieNo3plus::StrategieNo3plus()
+{
+	_description = QObject::tr( "die eleganteste Iterationslösung, noch besser" );
+	_options << QObject::tr( "0.28" ) << QObject::tr( "h * PI / Abdeckung" );
+}
+
+void StrategieNo3plus::calculateItems( Items& items )
+{
+	if ( items.isEmpty() ) return;
+	data.resize( items.count() );
+	// Init-daten brauchen wir ...
+	int		direction = static_cast< int >( _direction );
+	qreal	w0 = _startAngle, ww = 0, r, w( w0 ), n;
+	qreal	ds	  = qApp->style()->pixelMetric( QStyle::PM_LayoutVerticalSpacing );
+	QPointF scDDt = { 1., -1. }, sz = fromSize( items.first().size() );
+	// Variablen
+	int		btc( 1 ), ic( items.count() );
+	auto	baseHeight = ( ( sz.y() + ds ) * items.count() /* - ds*/ );
+	switch ( _selectedOption )
+	{
+		case 1: r = baseHeight * ( sz.y() * M_PI / _openParam ); break;
+		default: r = baseHeight * 0.28; break;
+	}
+	// auto		   dbg = qDebug() << "StrategieNo3 - Startwerte: w0=" << w0 << "r0=" << r;
+	Intersector usedSpace;
+	BestDelta	bd;
+	usedSpace.reserve( ic );
+	auto st = __rdtsc();
+	for ( int i = 0; i < ic; ++i )
+	{
+		data[ i ] = { r, w };
+		if ( i < ic - 1 )
+		{
+			// Basisdaten berechnen/beschaffen: sin / cos, ableitung, Mittelpunkt, nächste Box-Größe
+			auto sc = qSinCos( qDegreesToRadians( w ) ), c = r * sc, dt = sc.transposed() * scDDt,
+				 nxt_sz = fromSize( items[ i + 1 ].size() );
+			if ( i == 0 ) usedSpace.add( { c - 0.5 * sz, c + 0.5 * sz } );
+			// suchen wir nach dem nächsten möglichen Winkel:
+			bd.init( direction, w );
+			auto offset = 0.5 * ( sz + nxt_sz ) + QPointF{ ds, ds };
+			for ( auto v : { c + offset, c - offset } )
+			{
+				if ( abs( v.x() ) <= r )
+					n = 180 * qAsin( v.x() / r ) / M_PI, bd.addAngle( n ), bd.addAngle( 180 - n );
+				if ( abs( v.y() ) <= r )
+					n = 180 * qAcos( v.y() / r ) / M_PI, bd.addAngle( n ), bd.addAngle( -n );
+			}
+			// Jetzt wählen wir einen Winkel aus ...
+			qreal delta = bd.best();
+			// wir brauchen gleich: die aktualisierte Winkelsumme und den nächsten Mittelpunkt
+			ww += qAbs( delta );
+			c = r * qSinCos( qDegreesToRadians( w + delta ) );
+			// Haben wir ein Delta? Sind wir unter 360° insgesamt?
+			// Haben wir keine Überlappung?
+			if ( qAbs( delta ) > .001 && ww < _openParam
+				 && usedSpace.add( { c - 0.5 * nxt_sz, c + 0.5 * nxt_sz } ) )
+			{
+				// dbg << "-> selected delta:" << delta;
+				w += delta;
+				sz = nxt_sz;
+			} else {
+				// if ( ww >= 360. ) dbg << "=> Circle is overfilled.";
+				// else if ( qAbs( delta ) > .001 )
+				//	dbg << "=> overlapping items detected @" << usedSpace.lastIntersection;
+				// else dbg << "=> no follow-up-angles found.";
+				//  keine Winkel übrig?  Ergo keine Platzierung möglich.  Mehr Platz, bitte!
+				if ( btc++ > 15 ) // bzw. Abbruch nach 5 Iterationsversuchen.
+					break;
+				if ( r < baseHeight / 3 ) r += baseHeight / 30;
+				else if ( r < baseHeight / 2 ) r += baseHeight / 20;
+				else r *= 1.05;
+				i  = -1;
+				w  = w0;
+				ww = 0;
+				usedSpace.clear();
+				// dbg << "Retry with new r=" << r;
+			}
+		} else
+			/*dbg << "\n\tItem #" << i << QSizeF( sz.x(), sz.y() ) << "@ r=" << r << "w=" << w
+				<< "c=" << r * qSinCos( qDegreesToRadians( w ) ) << "\nDONE with calculate_3()."*/
+			;
+	}
+	auto et = __rdtsc();
+	qDebug()
+		/*dbg */
+		<< "Strategie No°3 PLUS took" << ( et - st ) << "cycles, running" << btc
+		<< "iterations, final radius =" << r;
+	items = usedSpace;
+}
+
+Opacities StrategieNo3plus::animateItems( Items& items, qreal progress )
+{
+	if ( data.count() != items.count() ) calculateItems( items );
+	return animate3( items, progress, startAngle(), data );
 }

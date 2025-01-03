@@ -6,7 +6,8 @@
 #include <QObject>
 #include <QRectF>
 
-using Opacities = QList< qreal >;
+using Opacities	   = QList< qreal >;
+using RadiusAngles = QList< QPair< qreal, qreal > >;
 
 struct StrategieBasis : Factory< StrategieBasis >
 {
@@ -63,7 +64,7 @@ class StrategieNo2 : public StrategieFactory::Registrar< StrategieNo2 >
 	int		  defaultOption() const override { return 2; }
 
   protected:
-	QList< QPair< qreal, qreal > > data;
+	RadiusAngles data;
 };
 
 class StrategieNo3 : public StrategieFactory::Registrar< StrategieNo3 >
@@ -75,5 +76,17 @@ class StrategieNo3 : public StrategieFactory::Registrar< StrategieNo3 >
 	Opacities animateItems( Items &items_with_sizes, qreal progress ) override;
 
   protected:
-	QList< QPair< qreal, qreal > > data;
+	RadiusAngles data;
+};
+
+class StrategieNo3plus : public StrategieFactory::Registrar< StrategieNo3plus >
+{
+  public:
+	StrategieNo3plus();
+
+	void	  calculateItems( Items &items_with_sizes ) override;
+	Opacities animateItems( Items &items_with_sizes, qreal progress ) override;
+
+  protected:
+	RadiusAngles data;
 };

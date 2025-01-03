@@ -72,10 +72,10 @@
               <number>15</number>
              </property>
              <property name="value">
-              <number>165</number>
+              <number>170</number>
              </property>
              <property name="sliderPosition">
-              <number>165</number>
+              <number>170</number>
              </property>
              <property name="orientation">
               <enum>Qt::Orientation::Horizontal</enum>
@@ -114,7 +114,7 @@
                 <number>1</number>
                </property>
                <property name="value">
-                <number>285</number>
+                <number>170</number>
                </property>
               </widget>
              </item>
@@ -267,13 +267,13 @@
            <item>
             <widget class="QDial" name="d_faktor">
              <property name="maximum">
-              <number>1000</number>
+              <number>360</number>
              </property>
              <property name="pageStep">
               <number>100</number>
              </property>
              <property name="value">
-              <number>100</number>
+              <number>270</number>
              </property>
              <property name="orientation">
               <enum>Qt::Orientation::Horizontal</enum>
@@ -284,8 +284,11 @@
              <property name="invertedControls">
               <bool>false</bool>
              </property>
+             <property name="wrapping">
+              <bool>true</bool>
+             </property>
              <property name="notchTarget">
-              <double>10.000000000000000</double>
+              <double>45.000000000000000</double>
              </property>
              <property name="notchesVisible">
               <bool>true</bool>
@@ -301,10 +304,10 @@
               <enum>QAbstractSpinBox::ButtonSymbols::UpDownArrows</enum>
              </property>
              <property name="maximum">
-              <number>1000</number>
+              <number>360</number>
              </property>
              <property name="value">
-              <number>100</number>
+              <number>270</number>
              </property>
             </widget>
            </item>
