@@ -230,7 +230,7 @@ void MainWindow::menuAbout2show()
 		anim.setCurrentTime( 0 );
 		anim.setDirection( QAbstractAnimation::Forward );
 		anim.start();
-	}
+	} else qDebug() << "MainWindow::menuAbout2show() fired with sender=" << QObject::sender();
 }
 
 void MainWindow::computePositions()
@@ -358,6 +358,10 @@ void MainWindow::contextMenuEvent( QContextMenuEvent *event )
 	menu.addAction( cutAct );
 	menu.addAction( copyAct );
 	menu.addAction( pasteAct );
+	menu.addSection( tr( "Undo/Redo" ) );
+	menu.addAction( undoAct );
+	menu.addAction( redoAct );
+	connect( &menu, &QPieMenu::aboutToShow, this, &MainWindow::menuAbout2show );
 	menu.exec( event->globalPos() );
 }
 

@@ -110,7 +110,7 @@ class MainWindow
 	QPropertyAnimation				anim;
 	QGraphicsWidget				   *x_button;
 	QList< QGraphicsProxyWidget * > items;
-	Intersector						_boxes;
+	StrategieBasis::Items			_boxes;
 	struct c3_item
 	{
 		QAbstractGraphicsShapeItem *item{ nullptr };

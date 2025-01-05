@@ -72,13 +72,14 @@ QModelIndex BerechnungsModell::parent( const QModelIndex &index ) const
 	return {};
 }
 
-void BerechnungsModell::calculateItems( int row, Intersector &items_with_sizes )
+void BerechnungsModell::calculateItems( int row, StrategieBasis::Items &items_with_sizes )
 {
 	if ( row >= 0 && row < _strategien.count() )
 		_strategien.at( row )->calculateItems( items_with_sizes );
 }
 
-Opacities BerechnungsModell::animateItems( int row, qreal t, Intersector &items_with_sizes )
+Opacities BerechnungsModell::animateItems( int row, qreal t,
+										   StrategieBasis::Items &items_with_sizes )
 {
 	if ( row >= 0 && row < _strategien.count() )
 		return _strategien.at( row )->animateItems( items_with_sizes, t );

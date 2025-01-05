@@ -10,10 +10,21 @@
 #include <QtMath>
 
 QT_BEGIN_NAMESPACE
+template < typename T >
+constexpr bool epsilonEQ( T a, T b )
+{
+	return std::abs( a - b ) <= std::numeric_limits< T >::epsilon() * 10;
+}
+template < typename T >
+constexpr bool epsilonNE( T a, T b )
+{
+	return std::abs( a - b ) > std::numeric_limits< T >::epsilon() * 10;
+}
 constexpr QPointF operator*( QPointF a, QPointF b )
 {
 	return { a.x() * b.x(), a.y() * b.y() };
 }
+
 constexpr QPointF fromSize( const QSizeF &a )
 {
 	return { a.width(), a.height() };
@@ -26,28 +37,49 @@ constexpr QPointF fromSize( const QRectF &a )
 {
 	return fromSize( a.size() );
 }
+
+constexpr QSizeF fromPoint( const QPointF &a )
+{
+	return { a.x(), a.y() };
+}
+constexpr QSize fromPoint( const QPoint &a )
+{
+	return { a.x(), a.y() };
+}
+
 constexpr QPointF richtung( QPointF d )
 {
-	auto sub = []( auto sub ) { return qAbs( sub ) < 0.000001 ? 0 : sub > 0 ? 1. : -1.; };
-	return { sub( d.x() ), sub( d.y() ) };
+	return { d.x() > 0. ? 1. : d.x() < 0. ? -1. : 0., d.y() > 0. ? 1. : d.y() < 0. ? -1. : 0. };
 }
-inline qreal normDegrees( qreal a )
+
+template < qreal halfCircle >
+constexpr qreal normalize( qreal a )
 {
-	return fmod( a, 360. ) + ( a < 0 ? 360. : 0. );
+	auto s = a < 0;
+	auto b = ( !s && a < 2 * halfCircle ) ? a : a + 2 * halfCircle * trunc( 0.5 * a / halfCircle );
+	return b + s * 2 * halfCircle;
 }
-inline qreal degreesDistance( qreal from, qreal to )
+constexpr auto normDeg = normalize< 180. >;
+constexpr auto normRad = normalize< M_PI >;
+
+template < qreal halfCircle >
+qreal distance( qreal from, qreal to )
 {
-	// Zwischen 2 Winkeln haben wir immer eine positive und eine negative Distanz.
-	// Wir suchen aber die Distanz in eine Richtung!
-	auto f_clean = fmod< double >( from, 360. ); // der Wert liegt jetzt zwischen [-360,360]
-	auto t_clean = fmod< double >( to, 360. );	 // dito
-	auto diff1	 = t_clean - f_clean;			 // Die Differenz auch.
-	return diff1 + ( diff1 > 180 ? -360 : diff1 < -180 ? 360 : 0 );
+	constexpr auto w0 = 2 * halfCircle, w1 = 0.5 / halfCircle, w2 = halfCircle;
+	auto		   d = to - from + w0 * ( trunc( from * w1 ) - trunc( to * w1 ) );
+	return d + ( d > w2 ? -w0 : d < -w2 ? w0 : 0 );
 }
-template < typename T >
-int qSgn( T val )
+inline auto	 degreesDistance = distance< 180. >;
+inline auto	 radiansDistance = distance< M_PI >;
+
+inline qreal qSgn( qreal val )
 {
-	return ( T( 0 ) < val ) - ( val < T( 0 ) );
+	return qreal( ( 0. < val ) - ( val < 0. ) );
+}
+inline QPointF qSgn( QPointF val )
+{
+	return { static_cast< qreal >( ( 0. < val.x() ) - ( val.x() < 0. ) ),
+			 static_cast< qreal >( ( 0. < val.y() ) - ( val.y() < 0. ) ) };
 }
 
 __forceinline QPointF qSinCos( qreal radians )
@@ -70,7 +102,6 @@ __forceinline QColor qLerpRGB( Qt::GlobalColor c0, Qt::GlobalColor c1, float t )
 	auto res_i8 = _mm_shuffle_epi8( _mm_cvtps_epi32( resf ), mask_back );
 	return QColor::fromRgba( _mm_extract_epi32( res_i8, 0 ) );
 }
-
 __forceinline QPointF qLerp2D( QPointF p0, QPointF p1, qreal t )
 {
 	auto _p0( _mm_setr_pd( p0.x(), p0.y() ) );
@@ -80,91 +111,134 @@ __forceinline QPointF qLerp2D( QPointF p0, QPointF p1, qreal t )
 	return { res.m128d_f64[ 0 ], res.m128d_f64[ 1 ] };
 }
 
-
 __forceinline qreal smoothStep( qreal t, qreal t0 = 0., qreal t1 = 1. )
 {
 	auto a = qMax( 0., qMin( 1., ( t - t0 ) / ( t1 - t0 ) ) );
 	return a * a * ( 3 - 2 * a );
 }
-
 __forceinline qreal superSmoothStep( qreal t, qreal start_max, qreal end_min, int index, int count )
 {
 	return smoothStep( t, index * start_max / ( count - 1 ),
 					   end_min + ( index + 1 ) * ( 1. - end_min ) / count );
 }
-
 __forceinline qreal superSmoothStep( qreal t, qreal a, int index, int count )
 {
 	return superSmoothStep( t, a, a, index, count );
 }
 
 
-// Der Intersektor ist eine RectF-Liste, die beim Hinzufügen mit den "neuen Funktionen"
+// Der Intersektor ist eine Rect(F)-Liste, die beim Hinzufügen mit den "neuen Funktionen"
 // (add(),addAnyhow()...) auch einen Überlappungsstatus der hinzugefügten Rects speichert.
-struct Intersector : public QList< QRectF >
+template < typename R, typename P >
+	requires( std::is_same_v< R, QRect > && std::is_same_v< P, QPoint > )
+			|| ( std::is_same_v< R, QRectF > && std::is_same_v< P, QPointF > )
+struct Intersector : public QList< R >
 {
-	QRectF lastIntersection;
-	bool   hasIntersection{ false };
-	bool   checkIntersections()
+	using R_type = R;
+	using P_type = P;
+
+	R	 _lastIntersection;
+	bool _hasIntersection{ false };
+	void resetIntersection() { _lastIntersection = {}, _hasIntersection = false; }
+	bool checkIntersections()
 	{
-		int i( count() - 1 );
+		int i( QList< R >::count() - 1 );
 		while ( i > 0 )
 		{
 			auto j( i - 1 );
 			while ( j >= 0 )
 			{
-				if ( at( i ).intersects( at( j ) ) )
+				if ( QList< R >::at( i ).intersects( QList< R >::at( j ) ) )
 				{
-					lastIntersection = at( i ).intersected( at( j ) );
-					return ( hasIntersection = true );
+					_lastIntersection = QList< R >::at( i ).intersected( QList< R >::at( j ) );
+					return ( _hasIntersection = true );
 				}
 				--j;
 			}
 			--i;
 		}
-		lastIntersection = {};
-		return ( hasIntersection = false );
+		_lastIntersection = {};
+		return ( _hasIntersection = false );
 	}
-	bool add( QRectF r )
+	// add() returns true, if the item can be added without intersections.
+	// If there is an intersection, lastIntersection will be set to the intersection rectangle and
+	// the item is not added.
+	virtual bool add( R_type r )
 	{
 		for ( auto i : *this )
 			if ( r.intersects( i ) )
 			{
-				lastIntersection = r.intersected( i );
+				_lastIntersection = r.intersected( i );
 				return false;
 			};
-		lastIntersection = {};
-		append( r );
+		_lastIntersection = {};
+		QList< R >::append( r );
 		return true;
 	}
-	void addAnyhow( QRectF r )
+	virtual void addAnyhow( R_type r )
 	{
 		for ( auto i : *this )
 			if ( r.intersects( i ) )
 			{
-				lastIntersection = r.intersected( i );
-				hasIntersection	 = true;
+				_lastIntersection = r.intersected( i );
+				_hasIntersection  = true;
 				break; // finish the loop prematurely
 			};
-		append( r );
+		QList< R >::append( r );
 	}
-	bool changeItem( int index, QRectF newValue )
+	// changeItem() returns true, if the item at index can be changed without intersections.
+	virtual bool changeItem( int index, R_type newValue )
 	{
-		if ( at( index ) != newValue )
+		if ( QList< R >::at( index ) != newValue )
 		{
 			// assign and recheck bounds
-			operator[]( index ) = newValue;
-			if ( !hasIntersection ) // only check for a intersections if there aren't any, already.
-				for ( int i( 0 ); i < count(); ++i )
-					if ( i != index && newValue.intersects( at( i ) ) )
-						lastIntersection = newValue.intersected( at( i ) ), hasIntersection = true;
+			QList< R >::operator[]( index ) = newValue;
+			if ( !_hasIntersection ) // only check for a intersections if there aren't any, already.
+				for ( int i( 0 ); i < QList< R >::count(); ++i )
+					if ( i != index && newValue.intersects( QList< R >::at( i ) ) )
+						_lastIntersection = newValue.intersected( QList< R >::at( i ) ),
+						_hasIntersection  = true;
 		}
+		return !_hasIntersection;
 	}
-	bool changeItem( int index, QPointF newCenter )
+	virtual bool changeItem( int index, P_type newCenter )
 	{
-		return changeItem( index, at( index ).translated( newCenter - at( index ).center() ) );
+		return changeItem( index, QList< R >::at( index ).translated(
+									  newCenter - QList< R >::at( index ).center() ) );
 	}
-	void resetIntersection() { lastIntersection = {}, hasIntersection = false; }
+	virtual void resetToFirst()
+	{
+		QList< R >::resize( 1 );
+		resetIntersection();
+	}
 };
 
+// Mal ein Versuch, die Winkeldifferenzen-Geschichte aus Strategie 3 zu vereinfachen:
+class BestDelta
+{
+  public:
+	__forceinline void init( qreal direction, qreal reference_angle )
+	{
+		bad = -( good = std::numeric_limits< qreal >::max() );
+		dir = direction;
+		w0	= reference_angle;
+	}
+	constexpr auto	reference() const { return w0; }
+	constexpr bool	hasGood() const { return good < std::numeric_limits< qreal >::max(); }
+	constexpr bool	hasBad() const { return bad > -std::numeric_limits< qreal >::max(); }
+	constexpr qreal best() const { return dir * ( hasGood() ? good : hasBad() ? bad : 0.0 ); }
+	template < double halfCircle >
+	__forceinline void addAngle( qreal a )
+	{
+		auto d = distance< halfCircle >( w0, a ) * dir;
+		if ( d > 0 ) good = qMin( good, d );
+		else if ( d < 0 ) bad = qMax( bad, d );
+	}
+	// Instanziierungen für die beiden Winkelmaße:
+	__forceinline void addDeg( qreal a ) { addAngle< 180.0 >( a ); }
+	__forceinline void addRad( qreal a ) { addAngle< M_PI >( a ); }
+
+  private:
+	qreal good, bad, dir, w0;
+};
 QT_END_NAMESPACE

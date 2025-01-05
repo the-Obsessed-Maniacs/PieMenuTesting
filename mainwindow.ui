@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>913</width>
-    <height>761</height>
+    <width>841</width>
+    <height>755</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -25,6 +25,12 @@
         <enum>Qt::Orientation::Horizontal</enum>
        </property>
        <widget class="QLabel" name="infoLabel">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="MinimumExpanding" vsizetype="Minimum">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
         <property name="text">
          <string>
 							   &lt;i&gt;Choose a menu option, or right-click to
@@ -36,10 +42,19 @@
         </property>
        </widget>
        <widget class="QGroupBox" name="gb_placement">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
         <property name="title">
          <string>Placement</string>
         </property>
-        <layout class="QFormLayout" name="formLayout">
+        <layout class="QFormLayout" name="placementLayout">
+         <property name="fieldGrowthPolicy">
+          <enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum>
+         </property>
          <item row="0" column="0">
           <widget class="QLabel" name="label_4">
            <property name="text">
@@ -99,8 +114,26 @@
            </item>
            <item>
             <layout class="QVBoxLayout" name="vla_start_dir">
+             <property name="leftMargin">
+              <number>6</number>
+             </property>
+             <property name="topMargin">
+              <number>6</number>
+             </property>
+             <property name="rightMargin">
+              <number>6</number>
+             </property>
+             <property name="bottomMargin">
+              <number>6</number>
+             </property>
              <item>
               <widget class="QSpinBox" name="sb_dstart">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
                <property name="readOnly">
                 <bool>false</bool>
                </property>
@@ -181,6 +214,12 @@
            </item>
            <item>
             <widget class="QSpinBox" name="sb_rmin">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
              <property name="readOnly">
               <bool>false</bool>
              </property>
@@ -236,6 +275,12 @@
            </item>
            <item>
             <widget class="QSpinBox" name="sb_rmax">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
              <property name="readOnly">
               <bool>false</bool>
              </property>
@@ -297,6 +342,12 @@
            </item>
            <item>
             <widget class="QSpinBox" name="sb_dfaktor">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
              <property name="readOnly">
               <bool>false</bool>
              </property>
@@ -330,10 +381,16 @@
         </layout>
        </widget>
        <widget class="QGroupBox" name="gb_anim">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
         <property name="title">
          <string>Animationskontrolle</string>
         </property>
-        <layout class="QFormLayout" name="formLayout_2">
+        <layout class="QFormLayout" name="animLayout">
          <item row="0" column="0">
           <widget class="QLabel" name="label_5">
            <property name="text">
@@ -377,7 +434,14 @@
           </widget>
          </item>
          <item row="1" column="1">
-          <widget class="QDoubleSpinBox" name="dsb_anistartwert"/>
+          <widget class="QDoubleSpinBox" name="dsb_anistartwert">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+          </widget>
          </item>
          <item row="2" column="0">
           <widget class="QLabel" name="endwertLabel">
@@ -388,6 +452,12 @@
          </item>
          <item row="2" column="1">
           <widget class="QDoubleSpinBox" name="dsb_aniendwert">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
            <property name="value">
             <double>1.000000000000000</double>
            </property>
@@ -523,8 +593,8 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>913</width>
-     <height>21</height>
+     <width>841</width>
+     <height>17</height>
     </rect>
    </property>
   </widget>

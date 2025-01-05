@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.16)
 
 project(PieMenuTesting VERSION 0.1 LANGUAGES CXX)
 
+#include( EnableIntrinsics.cmake )
+#add_compile_definitions( SIMDE_ARCH_X86_SVML )
+
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)

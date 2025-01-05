@@ -13,9 +13,9 @@ struct StrategieBasis : Factory< StrategieBasis >
 {
 	StrategieBasis( Key ) {}
 	// Austauschformat:
-	using Items																  = Intersector;
+	using Items													= Intersector< QRectF, QPointF >;
 	// Soll die Berechnung initial nach Änderung von Parametern durchführen
-	virtual void	  calculateItems( Items &items_with_sizes )				  = 0;
+	virtual void	  calculateItems( Items &items_with_sizes ) = 0;
 	// Soll die items auf ihre animierten Positionen setzen
 	virtual Opacities animateItems( Items &items_with_sizes, qreal progress ) = 0;
 

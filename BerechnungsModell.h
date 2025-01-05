@@ -23,8 +23,8 @@ class BerechnungsModell : public QAbstractItemModel
 	virtual QModelIndex parent( const QModelIndex &index ) const override;
 
 	// Model - Interface für die UI:
-	void				calculateItems( int row, Intersector &items_with_sizes );
-	Opacities			animateItems( int row, qreal t, Intersector &items_with_sizes );
+	void				calculateItems( int row, StrategieBasis::Items &items_with_sizes );
+	Opacities			animateItems( int row, qreal t, StrategieBasis::Items &items_with_sizes );
 
 	int					defaultRadiusPolicy( const QModelIndex &index ) const;
 	int					defaultStrategyID() const { return _strategien.count() - 1; }

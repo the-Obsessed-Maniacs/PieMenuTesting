@@ -2,35 +2,6 @@
 
 #include <QtWidgets>
 
-// Mal ein Versuch, die Winkeldifferenzen-Geschichte aus Strategie 3 zu vereinfachen:
-class BestDelta
-{
-  public:
-	__forceinline void init( qreal direction, qreal reference_angle )
-	{
-		bad = -( good = std::numeric_limits< qreal >::max() );
-		dir = direction;
-		w0	= reference_angle;
-	}
-	__forceinline void addAngle( qreal a )
-	{
-		auto d = degreesDistance( w0, a ) * dir;
-		if ( d > 0 ) good = qMin( good, d );
-		else bad = qMax( bad, d );
-	}
-	bool  hasGood() const { return good < std::numeric_limits< qreal >::max(); }
-	bool  hasBad() const { return bad > -std::numeric_limits< qreal >::max(); }
-	qreal best() const
-	{
-		if ( hasGood() ) return good * dir;
-		else if ( hasBad() ) return bad * dir;
-		else return 0.0;
-	}
-
-  private:
-	qreal good, bad, dir, w0;
-};
-
 ersterVersuch::ersterVersuch()
 	: StrategieBasis::Registrar< ersterVersuch >()
 {
@@ -171,18 +142,18 @@ void StrategieNo3::calculateItems( Items& items )
 	if ( items.isEmpty() ) return;
 	data.clear();
 	// Init-daten brauchen wir ...
-	int			   direction = static_cast< int >( _direction );
-	qreal		   w0 = _startAngle, ww = 0;
-	qreal		   ds	 = qApp->style()->pixelMetric( QStyle::PM_LayoutVerticalSpacing );
-	QPointF		   scDDt = { 1., -1. }, sz = fromSize( items.first().size() );
+	int		direction = static_cast< int >( _direction );
+	qreal	w0 = _startAngle, ww = 0;
+	qreal	ds	  = qApp->style()->pixelMetric( QStyle::PM_LayoutVerticalSpacing );
+	QPointF scDDt = { 1., -1. }, sz = fromSize( items.first().size() );
 	// Variablen
-	int			   btc( 1 ), ic( items.count() );
-	auto		   baseHeight = ( ( items.first().height() + ds ) * items.count() /* - ds*/ );
-	qreal		   r( baseHeight / 4 ), w( w0 ), np, off;
+	int		btc( 1 ), ic( items.count() );
+	auto	baseHeight = ( ( items.first().height() + ds ) * items.count() /* - ds*/ );
+	qreal	r( baseHeight / 4 ), w( w0 ), np, off;
 	// auto		   dbg = qDebug() << "StrategieNo3 - Startwerte: w0=" << w0 << "r0=" << r;
-	Intersector	   usedSpace;
-	QList< qreal > winkelz, delta_w, bad_deltas;
-	auto		   st = __rdtsc();
+	Intersector< QRectF, QPointF > usedSpace;
+	QList< qreal >				   winkelz, delta_w, bad_deltas;
+	auto						   st = __rdtsc();
 	for ( int i = 0; i < ic; ++i )
 	{
 		data.append( { r, w } );
@@ -271,7 +242,7 @@ void StrategieNo3::calculateItems( Items& items )
 	items = usedSpace;
 }
 
-Opacities animate3( Intersector& items, qreal t, qreal w0, RadiusAngles& data )
+Opacities animate3( StrategieBasis::Items& items, qreal t, qreal w0, RadiusAngles& data )
 {
 	Opacities result;
 	if ( items.isEmpty() ) return result;
@@ -306,21 +277,21 @@ void StrategieNo3plus::calculateItems( Items& items )
 	if ( items.isEmpty() ) return;
 	data.resize( items.count() );
 	// Init-daten brauchen wir ...
-	int		direction = static_cast< int >( _direction );
-	qreal	w0 = _startAngle, ww = 0, r, w( w0 ), n;
-	qreal	ds	  = qApp->style()->pixelMetric( QStyle::PM_LayoutVerticalSpacing );
-	QPointF scDDt = { 1., -1. }, sz = fromSize( items.first().size() );
+	int	  direction = static_cast< int >( _direction ), ic( items.count() );
+	qreal w0 = _startAngle, ww = 0, r, w( w0 ), n,
+		  ds	  = qApp->style()->pixelMetric( QStyle::PM_LayoutVerticalSpacing );
+	QPointF csDDt = { -1., 1. }, sz = fromSize( items.first().size() );
 	// Variablen
-	int		btc( 1 ), ic( items.count() );
-	auto	baseHeight = ( ( sz.y() + ds ) * items.count() /* - ds*/ );
+	int		btc( 1 );
+	auto	baseHeight = ( ( sz.y() + ds ) * ic /* - ds*/ );
 	switch ( _selectedOption )
 	{
 		case 1: r = baseHeight * ( sz.y() * M_PI / _openParam ); break;
 		default: r = baseHeight * 0.28; break;
 	}
 	// auto		   dbg = qDebug() << "StrategieNo3 - Startwerte: w0=" << w0 << "r0=" << r;
-	Intersector usedSpace;
-	BestDelta	bd;
+	Intersector< QRectF, QPointF > usedSpace;
+	BestDelta					   bd;
 	usedSpace.reserve( ic );
 	auto st = __rdtsc();
 	for ( int i = 0; i < ic; ++i )
@@ -329,7 +300,7 @@ void StrategieNo3plus::calculateItems( Items& items )
 		if ( i < ic - 1 )
 		{
 			// Basisdaten berechnen/beschaffen: sin / cos, ableitung, Mittelpunkt, nächste Box-Größe
-			auto sc = qSinCos( qDegreesToRadians( w ) ), c = r * sc, dt = sc.transposed() * scDDt,
+			auto sc = qSinCos( qDegreesToRadians( w ) ), c = r * sc, dt = sc.transposed() * csDDt,
 				 nxt_sz = fromSize( items[ i + 1 ].size() );
 			if ( i == 0 ) usedSpace.add( { c - 0.5 * sz, c + 0.5 * sz } );
 			// suchen wir nach dem nächsten möglichen Winkel:
@@ -338,9 +309,9 @@ void StrategieNo3plus::calculateItems( Items& items )
 			for ( auto v : { c + offset, c - offset } )
 			{
 				if ( abs( v.x() ) <= r )
-					n = 180 * qAsin( v.x() / r ) / M_PI, bd.addAngle( n ), bd.addAngle( 180 - n );
+					n = 180 * qAsin( v.x() / r ) / M_PI, bd.addDeg( n ), bd.addDeg( 180 - n );
 				if ( abs( v.y() ) <= r )
-					n = 180 * qAcos( v.y() / r ) / M_PI, bd.addAngle( n ), bd.addAngle( -n );
+					n = 180 * qAcos( v.y() / r ) / M_PI, bd.addDeg( n ), bd.addDeg( -n );
 			}
 			// Jetzt wählen wir einen Winkel aus ...
 			qreal delta = bd.best();
@@ -361,7 +332,7 @@ void StrategieNo3plus::calculateItems( Items& items )
 				//	dbg << "=> overlapping items detected @" << usedSpace.lastIntersection;
 				// else dbg << "=> no follow-up-angles found.";
 				//  keine Winkel übrig?  Ergo keine Platzierung möglich.  Mehr Platz, bitte!
-				if ( btc++ > 15 ) // bzw. Abbruch nach 5 Iterationsversuchen.
+				if ( btc++ > 15 ) // bzw. Abbruch nach 15 Iterationsversuchen.
 					break;
 				if ( r < baseHeight / 3 ) r += baseHeight / 30;
 				else if ( r < baseHeight / 2 ) r += baseHeight / 20;
