@@ -7,6 +7,10 @@
 #include <QStyleOptionMenuItem>
 #include <QStylePainter>
 #include <QWidgetAction>
+#if _WIN32
+#	pragma comment( lib, "dwmapi.lib" )
+#	include "dwmapi.h"
+#endif
 
 QPieMenuSettings::QPieMenuSettings( QPieMenu *menu )
 {
@@ -175,6 +179,13 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 void QPieMenu::showEvent( QShowEvent *e )
 {
 	qDebug() << "QPieMenu::showEvent(" << e << ")";
+#if _WIN32
+	// grab the native window handle and remove the CS_DROPSHADOW
+	HWND  hwnd		  = reinterpret_cast< HWND >( winId() );
+	DWORD class_style = ::GetClassLong( hwnd, GCL_STYLE );
+	class_style &= ~CS_DROPSHADOW;
+	::SetClassLong( hwnd, GCL_STYLE, class_style );
+#endif
 	// An dieser Stelle sollten wir die Position zentrieren ...
 	setGeometry( geometry().translated( _actionRects._boundingRect.topLeft() ) );
 	qApp->setEffectEnabled( Qt::UI_FadeMenu, false );
