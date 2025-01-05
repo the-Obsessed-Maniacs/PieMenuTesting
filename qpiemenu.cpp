@@ -77,14 +77,24 @@ QPieMenu::QPieMenu( const QString &title, QWidget *parent )
 	, _anim( new QPropertyAnimation( this, "showState", this ) )
 {
 	setTearOffEnabled( false );
-	setAutoFillBackground( false );
-	setWindowOpacity( 0. ); // make the other painting fully transparent
+	qApp->setEffectEnabled( Qt::UI_AnimateMenu, false );
+	setWindowFlag( Qt::FramelessWindowHint );
+	setAttribute( Qt::WA_TranslucentBackground );
+	// setAttribute( Qt::WA_NoSystemBackground );
+	// setAttribute( Qt::WA_PaintOnScreen );
+	// setAutoFillBackground( false );
 	_anim->setStartValue( 0. );
 	_anim->setEndValue( 1. );
 	_anim->setDuration( 500 );
 	connect( _anim,
 			 &QAbstractAnimation::finished,
 			 []() { qApp->setEffectEnabled( Qt::UI_FadeMenu, true ); } );
+	qDebug() << "QPieMenu created" << this;
+}
+
+QPieMenu::~QPieMenu()
+{
+	qDebug() << "QPieMenu destroying" << this;
 }
 
 void QPieMenu::setShowState( qreal value )
@@ -98,7 +108,6 @@ void QPieMenu::setShowState( qreal value )
 
 QSize QPieMenu::sizeHint() const
 {
-	qDebug() << "QPieMenu::sizeHint() =" << _actionRects._boundingRect.size();
 	return _actionRects._boundingRect.size();
 }
 
@@ -138,27 +147,28 @@ void QPieMenu::actionEvent( QActionEvent *event )
 
 void QPieMenu::paintEvent( QPaintEvent *e )
 {
-	auto t	 = qMin( qMax( _showState, _anim->startValue().toReal() ), _anim->endValue().toReal() );
-	auto dbg = qDebug() << "QPieMenu::paintEvent(" << e << "): t=" << t;
-	auto style = this->style();
+	auto		  sv	= _anim->startValue().toReal();
+	auto		  ev	= _anim->endValue().toReal();
+	// auto dbg = qDebug() << "QPieMenu::paintEvent(" << e << "): t=" << t;
+	auto		  style = this->style();
 	QStylePainter p( this );
 	p.translate( -_actionRects._boundingRect.topLeft() );
 	QStyleOptionMenuItem opt;
 	auto				 ac = actions().count();
 	for ( int i( 0 ); i < ac; ++i )
 	{
-		QStyleOptionMenuItem opt;
-		auto				 t_i = superSmoothStep( t, 0.3, 0.7, i, ac );
+		auto t_i = superSmoothStep( _showState, sv + 0.3, ev - 0.3, i, ac );
 		initStyleOption( &opt, actions().at( i ) );
 		opt.rect = _actionRects[ i ].marginsAdded( _settings.menuMargins );
 		opt.rect.moveCenter(
 			( qSinCos( _settings.startO + t_i * ( _actionRAs[ i ].y() - _settings.startO ) )
 			  * qSin( t_i * M_PI_2 ) * _actionRAs[ i ].x() )
 				.toPoint() );
+		p.setOpacity( t_i );
 		p.drawPrimitive( QStyle::PE_PanelMenu, opt );
 		opt.rect = opt.rect.marginsRemoved( _settings.menuMargins );
 		p.drawControl( QStyle::CE_MenuItem, opt );
-		dbg << "\n=> item drawn:" << opt << _actionRects[ i ];
+		// dbg << "\n=> item drawn:" << opt << _actionRects[ i ];
 	}
 }
 
@@ -172,15 +182,6 @@ void QPieMenu::showEvent( QShowEvent *e )
 	_anim->setDirection( QAbstractAnimation::Forward );
 	_anim->start();
 	QMenu::showEvent( e );
-}
-
-void QPieMenu::hideEvent( QHideEvent *e )
-{
-	qDebug() << "QPieMenu::hideEvent(" << e << ")";
-	_anim->setCurrentTime( _anim->duration() );
-	_anim->setDirection( QAbstractAnimation::Backward );
-	_anim->start();
-	QMenu::hideEvent( e );
 }
 
 void QPieMenu::updateActionRects()

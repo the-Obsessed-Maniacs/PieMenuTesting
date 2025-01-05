@@ -358,6 +358,8 @@ void MainWindow::contextMenuEvent( QContextMenuEvent *event )
 	menu.addAction( cutAct );
 	menu.addAction( copyAct );
 	menu.addAction( pasteAct );
+	menu.addSeparator();
+	menu.addMenu( formatMenu );
 	menu.addSection( tr( "Undo/Redo" ) );
 	menu.addAction( undoAct );
 	menu.addAction( redoAct );
@@ -545,7 +547,8 @@ void MainWindow::createMenus()
 	connect( helpMenu, &QMenu::aboutToShow, this, &MainWindow::menuAbout2show );
 
 	//! [12]
-	formatMenu = editMenu->addMenu( tr( "&Format" ) );
+	formatMenu = new QPieMenu( tr( "&Format" ) );
+	editMenu->addMenu( formatMenu );
 	formatMenu->addAction( boldAct );
 	formatMenu->addAction( italicAct );
 	formatMenu->addSeparator()->setText( tr( "Alignment" ) );

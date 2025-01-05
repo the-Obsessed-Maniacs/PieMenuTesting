@@ -50,6 +50,7 @@ class QPieMenu : public QMenu
 		: QPieMenu( QString(), parent )
 	{}
 	QPieMenu( const QString &title, QWidget *parent = nullptr );
+	~QPieMenu() override;
 	// Properties
 	qreal getShowState() const { return _showState; }
 	void  setShowState( qreal value );
@@ -71,9 +72,6 @@ class QPieMenu : public QMenu
 	// -> the showEvent starts the show animation, which is used to
 	//    make the menu readable.
 	void showEvent( QShowEvent *e ) override;
-	// -> the hideEvent starts the backwards show animation, which is used to
-	//    make the menu fade out/away.
-	void hideEvent( QHideEvent *e ) override;
 	// -> the wheel event could be used to rotate the items around.
 	//    It's not a must-have, it's a like to have...
 	void wheelEvent( QWheelEvent *e ) override { QMenu::wheelEvent( e ); }
@@ -89,11 +87,14 @@ class QPieMenu : public QMenu
 	RadiusAngles		_actionRAs;
 	QPieMenuSettings	_settings;
 	QPropertyAnimation *_anim{ nullptr };
+	QHideEvent		   *_hideEvt{ nullptr };
 	// -> Methods:
 	// basic calculation of the items -> produce item sizes: calculateSizes()
 	void				updateActionRects();
 	QRect				getNextRect( int actionIndex );
 	QSize				getActionSize( QAction *action );
+
+  private slots:
 };
 
 #endif // QPIEMENU_H
