@@ -190,16 +190,20 @@ class QPieMenu : public QMenu
 
 	QPropertyAnimation *_anim{ nullptr };
 
+	// Die Init-Daten müssen wir zum Teil noch zu beschaffen herausfinden.
 	PieInitData			_initData;
+	// Für die Berechnung nötige, relativ konstante, Style-Daten
 	PieStyleData		_styleData;
 	// _actionPieData:  Hier speichern wir dauerhaft die Größen der Items.  Sie werden (erstmal)
 	// wirklich nur beim Ändern der Action-Liste neu berechnet. Weiterhin speichern wir den Radius
 	// und die Winkel für die "Ruheposition".
 	PieData				_actionPieData;
+	// Dies werden die "immer aktuellen" Action-Rects.  Dort hin werden die Actions gerendert.
 	QList< QRect >		_actionRects;
-	HWND				_dropShadowRemoved{ nullptr };
 	// Sobald irgend etwas die aktuellen "_actionRects" invalidiert, wird dies gesetzt!
 	bool				_actionRectsDirty{ true };
+	// Windows-spezifisch: das transparente Fenster sollte keinen Schatten werfen !0 => geschafft!
+	HWND				_dropShadowRemoved{ nullptr };
 
 	// -> Methoden:
 	// Style-Daten beschaffen (bei init und bei StyleChange)
