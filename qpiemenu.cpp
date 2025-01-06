@@ -1,4 +1,4 @@
-﻿#include "qpiemenu.h"
+#include "qpiemenu.h"
 
 #include <QApplication>
 #include <QEvent>
@@ -14,22 +14,11 @@
 
 QPieMenuSettings::QPieMenuSettings( QPieMenu *menu )
 {
-	auto				 style = menu->style();
-	QStyleOptionMenuItem mopt;
-	mopt.initFrom( menu );
-	panelWidth = fw = style->pixelMetric( QStyle::PM_MenuPanelWidth, &mopt, menu );
-	deskFw			= style->pixelMetric( QStyle::PM_MenuDesktopFrameWidth, &mopt, menu );
-	hmarg			= style->pixelMetric( QStyle::PM_MenuHMargin, &mopt, menu );
-	vmarg			= style->pixelMetric( QStyle::PM_MenuVMargin, &mopt, menu );
-	menuMargins		= QMargins{ vmarg, vmarg, hmarg, vmarg };
-	icone			= style->pixelMetric( QStyle::PM_SmallIconSize, &mopt, menu );
-	sp				= qMin( style->pixelMetric( QStyle::PM_LayoutHorizontalSpacing, &mopt, menu ),
-							qMax( 3, style->pixelMetric( QStyle::PM_ToolBarItemSpacing, &mopt, menu ) ) );
-	ih				= qMax( icone, menu->fontMetrics().height() ) + 2 * hmarg;
-	startO			= qDegreesToRadians( 170 ); // vorerst legen wir hier Defaults fest!
-	maxO			= M_PI + M_PI_2 + M_PI_4;	// vorerst legen wir hier Defaults fest!
-	dir				= -1.;
-	startR			= getStartR( menu );
+	ih	   = qMax( icone, menu->fontMetrics().height() ) + 2 * hmarg;
+	startO = qDegreesToRadians( 170 ); // vorerst legen wir hier Defaults fest!
+	maxO   = M_PI + M_PI_2 + M_PI_4;   // vorerst legen wir hier Defaults fest!
+	dir	   = -1.;
+	startR = getStartR( menu );
 }
 
 qreal QPieMenuSettings::getStartR( QPieMenu *menu ) const
@@ -47,53 +36,26 @@ qreal QPieMenuSettings::nextR( QPieMenu *menu ) const
 	return r;
 }
 
-bool PieRects::add( R_type r )
-{
-	_boundingRect |= r;
-	return Intersector::add( r );
-}
-
-void PieRects::addAnyhow( R_type r )
-{
-	_boundingRect |= r;
-	return Intersector::addAnyhow( r );
-}
-
-bool PieRects::changeItem( int index, R_type newValue )
-{
-	_boundingRect |= newValue; // Der einfache Weg: Tatsächlich könnte dieses Rect Teil einer Grenze
-							   // des BR gewesen sein, das nach dem Verkleinern dieses Rects
-							   // tatsächlich schrumpfen könnte.  Macht aber erstmal nichts.
-	return Intersector::changeItem( index, newValue );
-}
-
-void PieRects::reset( int reserved_size )
-{
-	clear();
-	reserve( reserved_size );
-	resetIntersection();
-	_boundingRect = QRect();
-}
-
 QPieMenu::QPieMenu( const QString &title, QWidget *parent )
 	: QMenu( title, parent )
-	, _settings( this )
 	, _anim( new QPropertyAnimation( this, "showState", this ) )
 {
+	// Tearing this off would not be a good idea!
 	setTearOffEnabled( false );
 	qApp->setEffectEnabled( Qt::UI_AnimateMenu, false );
 	setWindowFlag( Qt::FramelessWindowHint );
 	setAttribute( Qt::WA_TranslucentBackground );
-	// setAttribute( Qt::WA_NoSystemBackground );
-	// setAttribute( Qt::WA_PaintOnScreen );
-	// setAutoFillBackground( false );
+	// initialize style-dependent data
+	readStyleData();
+	// to be removed later on:
 	_anim->setStartValue( 0. );
 	_anim->setEndValue( 1. );
 	_anim->setDuration( 500 );
 	connect( _anim,
 			 &QAbstractAnimation::finished,
 			 []() { qApp->setEffectEnabled( Qt::UI_FadeMenu, true ); } );
-	qDebug() << "QPieMenu created" << this;
+
+	qDebug() << "QPieMenu" << title << "created" << this;
 }
 
 QPieMenu::~QPieMenu()
@@ -112,82 +74,84 @@ void QPieMenu::setShowState( qreal value )
 
 QSize QPieMenu::sizeHint() const
 {
-	return _actionRects._boundingRect.size();
+	return _actionPieData._boundingRect.size();
+}
+
+int QPieMenu::actionIndexAt( const QPoint &pt ) const
+{
+	// Elegant way of checking this: backwards.
+	// If no elements are left, the loop counter already contains the result.
+	int i( _actionRects.count() - 1 );
+	do
+		if ( _actionRects[ i ].contains( pt ) ) return i;
+	while ( 0 < i-- );
+	return i;
+}
+
+bool QPieMenu::event( QEvent *e )
+{
+	// Ein Drop-Shadow um das Menu herum sieht nicht brauchbar aus, deshalb
+	// entfernen wir zumindest unter Windows den DropShadow tief in der WinAPI
+	switch ( e->type() )
+	{
+		case QEvent::StyleChange: readStyleData(); return true;
+#if _WIN32
+		case QEvent::WinIdChange:
+			{
+				HWND hwnd = reinterpret_cast< HWND >( winId() );
+				if ( _dropShadowRemoved != hwnd )
+				{
+					DWORD class_style = ::GetClassLong( hwnd, GCL_STYLE );
+					class_style &= ~CS_DROPSHADOW;
+					::SetClassLong( hwnd, GCL_STYLE, class_style );
+					_dropShadowRemoved = hwnd;
+				}
+				return true;
+			}
+#endif
+	}
+	qDebug() << "QPieMenu::event(" << e << ") passed down...";
+	return QMenu::event( e );
 }
 
 void QPieMenu::actionEvent( QActionEvent *event )
 {
-	// Whatever QMenu does, we do it, too.
-	QMenu::actionEvent( event );
-	// Wenn eine Action hinzugefügt wird, ändert sich die Anordnung des Menüs.
-	// Die Frage ist jetzt, machen wir nur eine Restberechnung oder immer und immer wieder eine
-	// Ganzberechnung?
-	//
-	// Wir können ja mal der Logik folgen: Menus werden i.d.R. sequenziell zusammengebaut.  Es ist
-	// eher selten, dass Actions mittendrin eingefügt werden.  Eine solch einfache Unterscheidung
-	// macht glaub ich viel Sinn.
-	const auto	t  = event->type();
-	const auto &al = actions();
-	qDebug() << "QPieMenu::actionEvent(" << event << "):" << event->action()
-			 << ( t == QEvent::ActionAdded	   ? tr( "hinzugefügt" ).toUtf8()
-				  : t == QEvent::ActionRemoved ? tr( "entfernt" ).toUtf8()
-											   : tr( "geändert" ).toUtf8() );
-
-	if ( al.last() == event->action() && t == QEvent::ActionAdded )
-	{
-		// Die einfache Variante: die letzte Box berechnen ...
-		auto lb = getNextRect( al.count() - 1 );
-		// gabs es ein Ergebnis?  Gibt es eine Überlappung?
-		if ( lb.isNull() || !_actionRects.add( lb ) )
-			++_settings.round,
-				updateActionRects(); // kein Ergebnis oder überlappung?  Dann alles neu berechnen.
-		else
-			updateGeometry(),
-				qDebug() << "new box:" << lb << "changed bb:" << _actionRects._boundingRect;
-	} else
-		// Die komplizierte Variante: Wir müssen alle Boxen neu berechnen.
-		updateActionRects();
+	// Egal was das Event besagt, unsere Actions haben sich invalidisiert.
+	calculatePieDataSizes();
+	calculateStillData();
+	_actionRects	  = _actionPieData; // operator QList<QRect>
+	_actionRectsDirty = false;
+	updateGeometry();
+	event->accept();
 }
 
 void QPieMenu::paintEvent( QPaintEvent *e )
 {
 	auto		  sv	= _anim->startValue().toReal();
 	auto		  ev	= _anim->endValue().toReal();
-	// auto dbg = qDebug() << "QPieMenu::paintEvent(" << e << "): t=" << t;
 	auto		  style = this->style();
 	QStylePainter p( this );
-	p.translate( -_actionRects._boundingRect.topLeft() );
+	p.translate( -_actionPieData._boundingRect.topLeft() );
 	QStyleOptionMenuItem opt;
 	auto				 ac = actions().count();
+	qreal				 t	= 1.;
 	for ( int i( 0 ); i < ac; ++i )
 	{
-		auto t_i = superSmoothStep( _showState, sv + 0.3, ev - 0.3, i, ac );
 		initStyleOption( &opt, actions().at( i ) );
-		opt.rect = _actionRects[ i ].marginsAdded( _settings.menuMargins );
-		opt.rect.moveCenter(
-			( qSinCos( _settings.startO + t_i * ( _actionRAs[ i ].y() - _settings.startO ) )
-			  * qSin( t_i * M_PI_2 ) * _actionRAs[ i ].x() )
-				.toPoint() );
-		p.setOpacity( t_i );
+		opt.rect = _actionRects[ i ].marginsAdded( _styleData.menuMargins );
+		p.setOpacity( currentAlpha( i ) );
 		p.drawPrimitive( QStyle::PE_PanelMenu, opt );
-		opt.rect = opt.rect.marginsRemoved( _settings.menuMargins );
+		opt.rect = opt.rect.marginsRemoved( _styleData.menuMargins );
 		p.drawControl( QStyle::CE_MenuItem, opt );
-		// dbg << "\n=> item drawn:" << opt << _actionRects[ i ];
 	}
 }
 
 void QPieMenu::showEvent( QShowEvent *e )
 {
 	qDebug() << "QPieMenu::showEvent(" << e << ")";
-#if _WIN32
-	// grab the native window handle and remove the CS_DROPSHADOW
-	HWND  hwnd		  = reinterpret_cast< HWND >( winId() );
-	DWORD class_style = ::GetClassLong( hwnd, GCL_STYLE );
-	class_style &= ~CS_DROPSHADOW;
-	::SetClassLong( hwnd, GCL_STYLE, class_style );
-#endif
 	// An dieser Stelle sollten wir die Position zentrieren ...
-	setGeometry( geometry().translated( _actionRects._boundingRect.topLeft() ) );
+	updateActionRects();
+	setGeometry( geometry().translated( _actionPieData._boundingRect.topLeft() ) );
 	qApp->setEffectEnabled( Qt::UI_FadeMenu, false );
 	_anim->setCurrentTime( 0 );
 	_anim->setDirection( QAbstractAnimation::Forward );
@@ -195,138 +159,245 @@ void QPieMenu::showEvent( QShowEvent *e )
 	QMenu::showEvent( e );
 }
 
+void QPieMenu::mouseMoveEvent( QMouseEvent *e )
+{
+	if ( !isVisible() ) return;
+
+	// Find action at position:
+	auto p	= e->position().toPoint() + _actionPieData._boundingRect.topLeft();
+	auto ai = actionIndexAt( p );
+	qDebug() << "QPieMenu::mouseMoveEvent(" << p << "):"
+			 << ( ai >= 0 ? tr( "Treffer = '%1'" ).arg( actions().at( ai )->text() )
+						  : tr( "Daneben" ) )
+					.toUtf8();
+	e->accept();
+}
+
+void QPieMenu::readStyleData()
+{
+	auto				 style = QWidget::style();
+	QStyleOptionMenuItem mopt;
+	mopt.initFrom( this );
+	_styleData.panelWidth = _styleData.fw =
+		style->pixelMetric( QStyle::PM_MenuPanelWidth, &mopt, this );
+	_styleData.deskFw = style->pixelMetric( QStyle::PM_MenuDesktopFrameWidth, &mopt, this );
+	_styleData.hmarg  = style->pixelMetric( QStyle::PM_MenuHMargin, &mopt, this );
+	_styleData.vmarg  = style->pixelMetric( QStyle::PM_MenuVMargin, &mopt, this );
+	_styleData.menuMargins =
+		QMargins{ _styleData.vmarg, _styleData.vmarg, _styleData.hmarg, _styleData.vmarg };
+	_styleData.icone = style->pixelMetric( QStyle::PM_SmallIconSize, &mopt, this );
+	_styleData.sp =
+		qMin( style->pixelMetric( QStyle::PM_LayoutHorizontalSpacing, &mopt, this ),
+			  qMax( 3, style->pixelMetric( QStyle::PM_ToolBarItemSpacing, &mopt, this ) ) );
+}
+
+void QPieMenu::calculatePieDataSizes()
+{
+	// Alle Größen sind voneinander abhängig, wenn wir einen konsistenten Stil (wie ihn Menüs nunmal
+	// haben sollten) mit zumindest gleichem Tabstopp verwenden wollen.  Da wir alle anfassen
+	// müssen, können wir auch gleich immer alle berechnen.
+	QStyleOptionMenuItem opt;
+	QAction				*action;
+	QSize				 sz, allSz;
+	int					 tab = 0, noSzItems = 0;
+	// Schritt #1: Tabstopp suchen
+	for ( int i( 0 ); i < actions().count(); ++i )
+	{
+		action = actions().at( i );
+		initStyleOption( &opt, action );
+		const bool isSection =
+			action->isSeparator() && ( !action->text().isEmpty() || !action->icon().isNull() );
+		const bool isLücke =
+			( isSection && !style()->styleHint( QStyle::SH_Menu_SupportsSections ) )
+			|| ( action->isSeparator() && !isSection ) || !action->isVisible();
+		auto w	= qobject_cast< QWidgetAction * >( action );
+		auto ww = w ? w->defaultWidget() : nullptr;
+		if ( ww == nullptr && !isLücke )
+		{
+			// Keine Widget-Action, keine Lücke: also Text und Icon
+			const QFontMetrics &fm = opt.fontMetrics;
+			auto				s  = action->text();
+			auto				t  = s.indexOf( u'\t' );
+			if ( t != -1 )
+			{
+				tab = qMax( tab, fontMetrics().horizontalAdvance( s.mid( t + 1 ) ) );
+				s	= s.left( t );
+			} else if ( action->isShortcutVisibleInContextMenu() || !_initData._isContext ) {
+				QKeySequence seq = action->shortcut();
+				if ( !seq.isEmpty() )
+					tab = qMax( tab,
+								fm.horizontalAdvance( seq.toString( QKeySequence::NativeText ) ) );
+			}
+		}
+	}
+	// Schritt #2: Größen (nach)berechnen
+	bool previousWasSeparator = true;
+	for ( int i( 0 ); i < actions().count(); ++i )
+	{
+		action = actions().at( i );
+		initStyleOption( &opt, action );
+		const bool isSection =
+			action->isSeparator() && ( !action->text().isEmpty() || !action->icon().isNull() );
+		const bool isPlainSep =
+			( isSection && !style()->styleHint( QStyle::SH_Menu_SupportsSections ) )
+			|| ( action->isSeparator() && !isSection );
+		sz = QSize(); // invalidisieren!
+		if ( !action->isVisible()
+			 || ( separatorsCollapsible() && previousWasSeparator && isPlainSep ) )
+			; // Action bekommt keine Größe - ist aus der Berechnung zu entfernen
+		else
+		{
+			if ( isPlainSep && !previousWasSeparator ) sz = { _styleData.sp, _styleData.sp };
+			auto w	= qobject_cast< QWidgetAction * >( action );
+			auto ww = w ? w->defaultWidget() : nullptr;
+			if ( ww ) // Widget-Action -> hat ihre eigene Größe!
+				sz = ww->sizeHint()
+						 .expandedTo( ww->minimumSize() )
+						 .expandedTo( ww->minimumSizeHint() )
+						 .boundedTo( ww->maximumSize() );
+			else if ( !isPlainSep )
+			{
+				// Keine Widget-Action, keine Lücke: also Text und Icon
+				const QFontMetrics &fm = opt.fontMetrics;
+				auto				s  = action->text();
+				sz =
+					fm.boundingRect( QRect(), Qt::TextSingleLine | Qt::TextShowMnemonic, s ).size();
+				QIcon is = action->icon();
+				if ( !is.isNull() )
+				{
+					QSize is_sz = is.actualSize( QSize( _styleData.icone, _styleData.icone ) );
+					if ( is_sz.height() > sz.height() ) sz.setHeight( is_sz.height() );
+				}
+				sz = style()->sizeFromContents( QStyle::CT_MenuItem, &opt, sz, this );
+			}
+			if ( sz.isValid() ) sz.rwidth() += tab;
+			previousWasSeparator = isPlainSep;
+		}
+		_actionPieData[ i ] = sz;
+		if ( sz.isValid() ) allSz += sz;
+		else ++noSzItems;
+	}
+	// Speichere die Durchschnittsgröße der Items mit!
+	_actionPieData._avgSz = allSz / ( actions().count() - noSzItems );
+}
+
+void QPieMenu::calculateStillData()
+{
+	if ( _actionPieData.isEmpty() ) return;
+	// Hier kommt erst einmal der optimierte Algorithmus hinein: die "stillData" berechnen wir
+	// einmalig nach ActionEvent, sie sind die Ruhepositionen für unser Menü.  Diese sind auch
+	// wichtig für das Bounding Rect: nach Abschluss der Berechnungen sollten wir ein paar kluge
+	// Margins auf das boundingRect draufrechnen, damit wir ohne unsere Geometrie ändern zu müssen,
+	// auch Skalierungseffekte erstellen können.
+	//
+	// Zuerst brauchen wir eine gute Schätzung für den startRadius.  Wir haben gelernt, dass hier
+	// sowohl Breite, als auch Höhe eingehen.
+	// Weiterhin erscheint mir gerade relativ klar, dass bis zu einem
+	//      Radius < length( fromSize( average_item_size ) )
+	// der Durchschnittsgröße weniger Items im Kreis platziert werden können, weil im Endeffekt nur
+	// eine Seite des Kreises zum Anordnen von Elementen zur Verfügung steht.  Wären auf der anderen
+	// Seite, also ab 180° Gesamtüberdeckung auch Elemente, würde es bei diesen kleinen Radien
+	// zwangsläufig zu Überdeckungen kommen.
+	int		  runde = 0, ac = actions().count();
+	QPointF	  sc, off;
+	QPoint	  c;
+	QRect	  box;
+	auto	  scddt = [ &sc ]() { return QPointF{ sc.y(), -sc.x() }; };
+	qreal	  w, dir, r, n, ww;
+	BestDelta bd;
+	for ( int i = 0; i < ac; ++i )
+	{
+		// Winkel initialisieren oder aus der letzten Runde übernehmen
+		if ( i == 0 )
+		{
+			r	= startR( runde++ );
+			w	= _initData._start0;
+			dir = ( _initData._negativeDirection ? -1. : 1. );
+			sc	= qSinCos( w );
+			c	= {};
+			ww	= 0;
+			_actionPieData.resetCalculations();
+		}
+		// nur sichtbare Elemente berücksichtigen
+		if ( _actionPieData[ i ].operator QSize().isValid() )
+		{ // wenn c nocht nicht gesetzt wurde, sind wir beim allerersten Element, was sichtbar ist.
+			if ( c.isNull() ) _actionPieData.setCenter( i, c = ( r * sc ).toPoint() );
+			_actionPieData.setAngle( i, w );
+			// Prüfung: gibt es noch ein Folgeelement?
+			auto ii = i + 1;
+			while ( ii < ac && !_actionPieData[ ii ].operator QSize().isValid() ) ++ii;
+			if ( ii < ac )
+			{
+				// Es gibt noch eine Folgebox zu berechnen...
+				off = dir * qSgn( scddt() )
+					  * ( QPoint{ _styleData.sp, _styleData.sp }.toPointF()
+						  + 0.5
+								* ( fromSize( _actionPieData[ i ] )
+									+ fromSize( _actionPieData[ ii ] ) ) );
+				bd.init( dir, w );
+				for ( auto v : { c + off, c - off } )
+				{
+					if ( abs( v.x() ) <= r )
+						n = qAsin( v.x() / r ), bd.addRad( n ), bd.addRad( M_PI - n );
+					if ( abs( v.y() ) <= r )
+						n = qAcos( v.y() / r ), bd.addRad( n ), bd.addRad( -n );
+				}
+				// Ergebnis: der nächste Winkel - vielleicht ...
+				n = bd.best();
+				ww += qAbs( n );
+				if ( !qFuzzyIsNull( n ) && ww < _initData._max0 )
+				{
+					c = ( r * ( sc = qSinCos( w + n ) ) ).toPoint();
+					if ( _actionPieData.setCenter( ii, c ) )
+					{
+						w += n;
+						// Überspringen von leeren Elementen - wir haben ja schon danach geschaut
+						// ...
+						i = ii - 1;
+						// Ich habe ein Ergebnis berechnet - auf zum nächsten!
+						continue;
+					}
+				}
+				// Landet der Program Counter hier, dann brauchen wir mehr Platz.
+				// -> mit "i = -1;" starten wir die Schleife von vorn.
+				i = -1;
+			}
+		} else {
+			_actionPieData[ i ]._angle = 0.;
+		}
+	}
+	// Wir justieren zur Sicherheit mal jeweils um die halbe Durchschnittsgröße.
+	auto xa = _actionPieData._avgSz.width() >> 1;
+	auto ya = _actionPieData._avgSz.height() >> 1;
+	_actionPieData._boundingRect.adjust( -xa, -ya, xa, ya );
+}
+
+qreal QPieMenu::startR( int runde ) const
+{
+	auto asz = _actionPieData._avgSz;
+	auto avp = fromSize( asz );
+	// Radius, der spätestens in der 3. Runde verwendet werden sollte (ggf. noch ein "+ Spacing"?)
+	auto r3	 = qSqrt( QPointF::dotProduct( avp, avp ) );
+	// Bisher eine gute Schätzung:
+	//      ( AspectRatio * (item_height+spacing) * itemCount ) / floor( winkelÜberdeckung / 90° )
+	auto r0	 = ( avp.y() / avp.x() ) * ( asz.height() + _styleData.sp ) * actions().count()
+			  / qFloor( _initData._max0 / M_PI_2 );
+	// Also: 0. - 3. Runde bewegen wir uns linear zwischen r0 und r3
+	if ( runde < 4 ) return r0 + runde * ( r3 - r0 ) / 3;
+	// Danach addieren wir für jede Runde eine halbe Item-Höhe drauf.
+	return r3 + ( runde - 3 ) * ( asz.height() >> 1 );
+}
+
 void QPieMenu::updateActionRects()
 {
-	auto na	 = actions().count();
-	auto dbg = qDebug() << "begin: QPieMenu::updateActionRects(), # of Actions:" << na
-						<< ", round:" << _settings.round << ", radius:"
-						<< ( _settings.round ? _settings.nextR( this ) : _settings.startR );
-	const auto &hi = _actionRects._hasIntersection;
-	int			i;
-	auto		inc = [ & ]( bool isStart = false )
-	{
-		if ( isStart || _actionRects[ i ].isNull() || hi )
-		{
-			if ( !isStart )
-			{
-				_settings.round++;
-				dbg << "... need more space" << ( hi ? "(overlap:" : "(no solution" );
-				if ( hi ) dbg << _actionRects._lastIntersection;
-				dbg << ") -> next radius:" << _settings.nextR( this ) << "";
-			}
-			i = 0;
-			_actionRects.reset( na );
-			_actionRAs.clear();
-		} else ++i, dbg << "-> OK.";
-	};
-	for ( inc( true ); i < na; inc() )
-	{
-		_actionRects.addAnyhow( getNextRect( i ) );
-		dbg << "\n\titem" << actions()[ i ]->text() << "=" << _actionRects[ i ];
-	}
-	updateGeometry();
-}
+	if ( !_actionRectsDirty ) return;
+	// Die Action Rects werden auf unterschiedliche Art und Weise dirty.
+	// Wenn wir auch während der Animationen die Action Rects aktuell halten wollen, so muss das
+	// hier geschehen.  Diese Funktion aktualisiert die dreckigen Action Rects je nach aktueller
+	// Darstellungssituation.
 
-QRect QPieMenu::getNextRect( int actionIndex )
-{
-	if ( actionIndex == 0 )
-	{ // Die erste Aktion bekommt ihren Platz ohne große Berechnung und diehnt dem beschaffen der
-	  // Style-Daten.  Hier - wir wollen ja die Berechnung auseinander reissen - besorgen wir die
-	  // aktuellen style-daten.
-		if ( _settings.round > 0 )
-		{ // Der Radius muss vergrößert werden.
-			_settings.startR = _settings.nextR( this );
-			_actionRects.resetIntersection();
-			_actionRAs.clear();
-		} else _settings = QPieMenuSettings( this );
-		QRect ar = { {}, getActionSize( actions().at( actionIndex ) ) };
-		ar.moveCenter( ( _settings.startR * qSinCos( _settings.startO ) ).toPoint() );
-		_actionRAs.append( { _settings.startR, _settings.startO } );
-		return ar;
-	} else { // Die weiteren Aktionen bekommen ihren Platz durch die Berechnung der Positionen.
-		BestDelta bd;
-		auto	  last = _actionRAs.last();
-		auto	  sz   = fromSize( getActionSize( actions().at( actionIndex ) ) );
-		auto	  c	   = _actionRects[ actionIndex - 1 ].center();
-		auto offs = 2 * _settings.SP() + 0.5 * ( sz + fromSize( _actionRects[ actionIndex - 1 ] ) );
-		bd.init( _settings.dir, last.y() );
-		qreal n;
-		for ( auto v : { c + offs, c - offs } )
-		{
-			if ( abs( v.x() ) <= last.x() )
-				n = qAsin( v.x() / last.x() ), bd.addRad( n ), bd.addRad( M_PI - n );
-			if ( abs( v.y() ) <= last.x() )
-				n = qAcos( v.y() / last.x() ), bd.addRad( n ), bd.addRad( -n );
-		}
-		// Jetzt wählen wir einen Winkel aus ...
-		n		= bd.best();
-		auto np = qAbs( n );
-		// Kriterien: Ungleich 0, Summe kleiner maximalsumme, keine Überlappung
-		// hier wird die Überlappung nicht geprüft, da wir den Algorithmus zerlegen!
-		if ( np > std::numeric_limits< qreal >::epsilon()
-			 && ( qAbs( radiansDistance( _settings.startO, last.y() ) ) + np < _settings.maxO ) )
-		{
-			_actionRAs.append( { last.x(), last.y() + n } );
-			return QRectF{ ( last.x() * qSinCos( last.y() + n ) - 0.5 * sz ), fromPoint( sz ) }
-				.toRect();
-		} else {
-			_settings.round++;
-			return QRect();
-		}
-	}
-}
-
-QSize QPieMenu::getActionSize( QAction *action )
-{
-	const bool isSection =
-		action->isSeparator() && ( !action->text().isEmpty() || !action->icon().isNull() );
-	const bool isLücke = ( isSection && !style()->styleHint( QStyle::SH_Menu_SupportsSections ) )
-						 || ( action->isSeparator() && !isSection ) || !action->isVisible();
-	auto				 sz = QSize( 2, 2 );
-
-	// let the style modify the above size..
-	QStyleOptionMenuItem opt;
-	initStyleOption( &opt, action );
-	const QFontMetrics &fm = opt.fontMetrics;
-	auto				w  = qobject_cast< QWidgetAction * >( action );
-	auto				ww = w ? w->defaultWidget() : nullptr;
-	if ( ww ) // Widget-Action -> hat ihre eigene Größe!
-		sz = ww->sizeHint()
-				 .expandedTo( ww->minimumSize() )
-				 .expandedTo( ww->minimumSizeHint() )
-				 .boundedTo( ww->maximumSize() );
-	else if ( !isLücke )
-	{
-		// Keine Widget-Action, keine Lücke: also Text und Icon
-		auto s = action->text();
-		auto t = s.indexOf( u'\t' );
-		if ( t != -1 )
-		{
-			_settings.tabWid =
-				qMax( _settings.tabWid, fontMetrics().horizontalAdvance( s.mid( t + 1 ) ) );
-			s = s.left( t );
-		} else if ( action->isShortcutVisibleInContextMenu() || !_settings.contextMenu ) {
-			QKeySequence seq = action->shortcut();
-			if ( !seq.isEmpty() )
-				_settings.tabWid =
-					qMax( _settings.tabWid,
-						  fm.horizontalAdvance( seq.toString( QKeySequence::NativeText ) ) );
-		}
-		sz		 = fm.boundingRect( QRect(), Qt::TextSingleLine | Qt::TextShowMnemonic, s ).size();
-		QIcon is = action->icon();
-		if ( !is.isNull() )
-		{
-			QSize is_sz = is.actualSize( QSize( _settings.icone, _settings.icone ) );
-			if ( is_sz.height() > sz.height() ) sz.setHeight( is_sz.height() );
-		}
-		sz = style()->sizeFromContents( QStyle::CT_MenuItem, &opt, sz, this );
-	}
-	sz.rwidth() += _settings.tabWid;
-	_settings.previousWasSeparator = isLücke;
-	if ( sz.height() > _settings.ih )
-	{
-		_settings.ih	 = qMax( _settings.ih, sz.height() );
-		_settings.startR = qMax( _settings.startR, _settings.getStartR( this ) );
-	}
-	return sz;
+	// Die direkte Schlussfolgerung ist: die Action Rects können direkt zum Rendern verwendet
+	// werden.
+	// Hier ist ein Arbeitsplatz des State Managers!
+	// TODO!
 }

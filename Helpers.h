@@ -1,4 +1,4 @@
-﻿/**************************************************************************************************
+/**************************************************************************************************
  *  a small collection of helper functions
  * by St0fF / 2025
  *************************************************************************************************/
@@ -69,17 +69,22 @@ qreal distance( qreal from, qreal to )
 	auto		   d = to - from + w0 * ( trunc( from * w1 ) - trunc( to * w1 ) );
 	return d + ( d > w2 ? -w0 : d < -w2 ? w0 : 0 );
 }
-inline auto	 degreesDistance = distance< 180. >;
-inline auto	 radiansDistance = distance< M_PI >;
+inline auto			   degreesDistance = distance< 180. >;
+inline auto			   radiansDistance = distance< M_PI >;
 
-inline qreal qSgn( qreal val )
+constexpr inline qreal qSgn( qreal val )
 {
 	return qreal( ( 0. < val ) - ( val < 0. ) );
 }
-inline QPointF qSgn( QPointF val )
+constexpr inline QPointF qSgn( QPointF val )
 {
 	return { static_cast< qreal >( ( 0. < val.x() ) - ( val.x() < 0. ) ),
 			 static_cast< qreal >( ( 0. < val.y() ) - ( val.y() < 0. ) ) };
+}
+constexpr inline QPointF qSgn( QPointF val, qreal scale )
+{
+	return { static_cast< qreal >( ( 0. < val.x() ) - ( val.x() < 0. ) ) * scale,
+			 static_cast< qreal >( ( 0. < val.y() ) - ( val.y() < 0. ) ) * scale };
 }
 
 __forceinline QPointF qSinCos( qreal radians )
