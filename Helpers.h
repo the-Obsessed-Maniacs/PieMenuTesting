@@ -92,20 +92,22 @@ __forceinline QPointF qSinCos( qreal radians )
 	return QPointF{ qSin( radians ), qCos( radians ) };
 }
 
-__forceinline QColor qLerpRGB( Qt::GlobalColor c0, Qt::GlobalColor c1, float t )
+__forceinline QColor qLerpRGBA( const QColor &c0, const QColor &c1, qreal t )
 {
 	auto mask_to   = _mm_set_epi64x( 0x0f0f0f030f0f0f02, 0x0f0f0f010f0f0f00 );
 	auto mask_back = _mm_set_epi64x( 0x0f0f0f0f0f0f0f0f, 0x0f0f0f0f0c080400 );
 	auto _t		   = _mm_set_ps1( qMin( 1.f, qMax( 0.f, t ) ) ); // safeguard
-	auto _c0 =
-		_mm_cvtepi32_ps( _mm_shuffle_epi8( _mm_set1_epi32( QColor( c0 ).rgba() ), mask_to ) );
-	auto _c1 =
-		_mm_cvtepi32_ps( _mm_shuffle_epi8( _mm_set1_epi32( QColor( c1 ).rgba() ), mask_to ) );
+	auto _c0	   = _mm_cvtepi32_ps( _mm_shuffle_epi8( _mm_set1_epi32( c0.rgba() ), mask_to ) );
+	auto _c1	   = _mm_cvtepi32_ps( _mm_shuffle_epi8( _mm_set1_epi32( c1.rgba() ), mask_to ) );
 	// We've reached the future some time ago?
 	// https://fgiesen.wordpress.com/2012/08/15/linear-interpolation-past-present-and-future/
-	auto resf	= _mm_fmadd_ps( _t, _c1, _mm_fnmsub_ps( _t, _c0, _c0 ) );
-	auto res_i8 = _mm_shuffle_epi8( _mm_cvtps_epi32( resf ), mask_back );
+	auto resf	   = _mm_fmadd_ps( _t, _c1, _mm_fnmsub_ps( _t, _c0, _c0 ) );
+	auto res_i8	   = _mm_shuffle_epi8( _mm_cvtps_epi32( resf ), mask_back );
 	return QColor::fromRgba( _mm_extract_epi32( res_i8, 0 ) );
+}
+__forceinline QColor qLerpRGBA( Qt::GlobalColor c0, Qt::GlobalColor c1, qreal t )
+{
+	return qLerpRGBA( QColor( c0 ), QColor( c1 ), t );
 }
 __forceinline QPointF qLerp2D( QPointF p0, QPointF p1, qreal t )
 {
@@ -114,6 +116,10 @@ __forceinline QPointF qLerp2D( QPointF p0, QPointF p1, qreal t )
 	auto _t( _mm_set1_pd( t ) );
 	auto res( _mm_fmadd_pd( _t, _p1, _mm_fnmsub_pd( _t, _p0, _p0 ) ) );
 	return { res.m128d_f64[ 0 ], res.m128d_f64[ 1 ] };
+}
+__forceinline QSizeF qLerpSize( QSizeF s0, QSizeF s1, qreal t )
+{
+	return fromPoint( qLerp2D( fromSize( s0 ), fromSize( s1 ), t ) );
 }
 
 __forceinline qreal smoothStep( qreal t, qreal t0 = 0., qreal t1 = 1. )

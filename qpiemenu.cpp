@@ -12,33 +12,8 @@
 #	include "dwmapi.h"
 #endif
 
-QPieMenuSettings::QPieMenuSettings( QPieMenu *menu )
-{
-	ih	   = qMax( icone, menu->fontMetrics().height() ) + 2 * hmarg;
-	startO = qDegreesToRadians( 170 ); // vorerst legen wir hier Defaults fest!
-	maxO   = M_PI + M_PI_2 + M_PI_4;   // vorerst legen wir hier Defaults fest!
-	dir	   = -1.;
-	startR = getStartR( menu );
-}
-
-qreal QPieMenuSettings::getStartR( QPieMenu *menu ) const
-{
-	return qMax( qreal( ih ), 0.2833 * qreal( ih + sp ) * menu->actions().count() );
-}
-
-qreal QPieMenuSettings::nextR( QPieMenu *menu ) const
-{
-	auto r	= startR;
-	auto sr = getStartR( menu );
-	// Möglicherweise eine Änderung der Item-Anzahl?
-	if ( r < sr ) r = sr;
-	else r *= 1.15;
-	return r;
-}
-
 QPieMenu::QPieMenu( const QString &title, QWidget *parent )
 	: QMenu( title, parent )
-	, _anim( new QPropertyAnimation( this, "showState", this ) )
 {
 	// Tearing this off would not be a good idea!
 	setTearOffEnabled( false );
@@ -47,13 +22,6 @@ QPieMenu::QPieMenu( const QString &title, QWidget *parent )
 	setAttribute( Qt::WA_TranslucentBackground );
 	// initialize style-dependent data
 	readStyleData();
-	// to be removed later on:
-	_anim->setStartValue( 0. );
-	_anim->setEndValue( 1. );
-	_anim->setDuration( 500 );
-	connect( _anim,
-			 &QAbstractAnimation::finished,
-			 []() { qApp->setEffectEnabled( Qt::UI_FadeMenu, true ); } );
 
 	qDebug() << "QPieMenu" << title << "created" << this;
 }
@@ -61,15 +29,6 @@ QPieMenu::QPieMenu( const QString &title, QWidget *parent )
 QPieMenu::~QPieMenu()
 {
 	qDebug() << "QPieMenu destroying" << this;
-}
-
-void QPieMenu::setShowState( qreal value )
-{
-	if ( epsilonNE( _showState, value ) )
-	{
-		emit showStateChanged( _showState = value );
-		update();
-	}
 }
 
 QSize QPieMenu::sizeHint() const
@@ -127,19 +86,19 @@ void QPieMenu::actionEvent( QActionEvent *event )
 
 void QPieMenu::paintEvent( QPaintEvent *e )
 {
-	auto		  sv	= _anim->startValue().toReal();
-	auto		  ev	= _anim->endValue().toReal();
-	auto		  style = this->style();
+	updateActionRects();
 	QStylePainter p( this );
 	p.translate( -_actionPieData._boundingRect.topLeft() );
 	QStyleOptionMenuItem opt;
 	auto				 ac = actions().count();
-	qreal				 t	= 1.;
 	for ( int i( 0 ); i < ac; ++i )
 	{
 		initStyleOption( &opt, actions().at( i ) );
 		opt.rect = _actionRects[ i ].marginsAdded( _styleData.menuMargins );
-		p.setOpacity( currentAlpha( i ) );
+		p.setOpacity( _actionRenderData[ i ].x() );
+		// ToDo: Benutze den Skalierfaktor "_actionRenderData[ i ].y()" korrekt.
+		//  z.B.:
+		opt.font.setPointSizeF( opt.font.pointSizeF() * _actionRenderData[ i ].y() );
 		p.drawPrimitive( QStyle::PE_PanelMenu, opt );
 		opt.rect = opt.rect.marginsRemoved( _styleData.menuMargins );
 		p.drawControl( QStyle::CE_MenuItem, opt );
@@ -162,9 +121,7 @@ void QPieMenu::showEvent( QShowEvent *e )
 	updateActionRects();
 	setGeometry( geometry().translated( _actionPieData._boundingRect.topLeft() ) );
 	qApp->setEffectEnabled( Qt::UI_FadeMenu, false );
-	_anim->setCurrentTime( 0 );
-	_anim->setDirection( QAbstractAnimation::Forward );
-	_anim->start();
+	ereignis( PieMenuEreignis::getsShown );
 	QMenu::showEvent( e );
 }
 
@@ -198,6 +155,9 @@ void QPieMenu::readStyleData()
 	_styleData.sp =
 		qMin( style->pixelMetric( QStyle::PM_LayoutHorizontalSpacing, &mopt, this ),
 			  qMax( 3, style->pixelMetric( QStyle::PM_ToolBarItemSpacing, &mopt, this ) ) );
+	_styleData.HL = _styleData.HLtransparent = palette().color( QPalette::Highlight );
+	_styleData.HL.setAlphaF( _initData._selRectAlpha );
+	_styleData.HLtransparent.setAlphaF( 0.0 );
 }
 
 void QPieMenu::calculatePieDataSizes()
@@ -397,16 +357,118 @@ qreal QPieMenu::startR( int runde ) const
 	return r3 + ( runde - 3 ) * ( asz.height() >> 1 );
 }
 
+void QPieMenu::ereignis( PieMenuEreignis e, quint64 p )
+{
+	auto t = QTime::currentTime();
+	switch ( e )
+	{
+#pragma region( Zeitanimationen )
+		// Schalte die Animation zum Anzeigen ein
+		case PieMenuEreignis::getsShown: break;
+		// Schreibe aktuelle Animationen weiter, ggf. timer stoppen
+		case PieMenuEreignis::animate:
+			// Läuft die SelRect-Animation?
+			if ( _selRectAnimiert ) _selRectDirty = true;
+			if ( _raAnimiert ) _actionRectsDirty = true;
+			if ( _folgenAnimiert )
+				_actionRectsDirty = true,
+				_folgePunkt		  = { static_cast< int >( p & 0xffffffff ),
+									  static_cast< int >( ( p >> 32 ) & 0xffffffff ) };
+			update();
+			break;
+#pragma endregion
+#pragma region( HOVER )
+		// Beginne, das SelRect wieder zu verstecken
+		case PieMenuEreignis::hover_Item_end:
+			// - setze das Zentrum und eine Größe von (0,0) als Zielwert
+			p = -1;
+			[[fallthru]];
+		// Beginne, das Selection Rect zu animieren
+		case PieMenuEreignis::hover_Item_start: [[fallthrough]];
+		case PieMenuEreignis::hover_Item_switch:
+			// - nimm die letzte Position des SelRects as Startwert
+			_srS = _selRect;
+			if ( static_cast< int >( p & 0xffffffff ) == -1 )
+				_srT = { {}, _styleData.HLtransparent };
+			else
+			{
+				// Was braucht die Selection Rect-Animation?
+				// -> Position und Farbe (alpha in der Farbe)
+				auto r = _actionPieData[ static_cast< int >( p & 0xffffffff ) ]._geo;
+				auto p = r.center();
+				r.setSize( 2 * r.size() );
+				r.moveCenter( p );
+				_srT = { r, _styleData.HL };
+			}
+			// - initiiere SelRectAnimation bzw. setze ihre Werte zurück
+			_selRectStart = t;
+			ereignis( PieMenuEreignis::zeitanimation_beginnt,
+					  reinterpret_cast< quint64 >( &_selRectAnimiert ) );
+			break;
+#pragma endregion
+#pragma region( EchtzeitAnimation )
+		// Starte die Echtzeitanimation
+		case PieMenuEreignis::distance_closing_in: break;
+		// Beende die Echtzeitanimation
+		case PieMenuEreignis::distance_leaving: break;
+#pragma endregion
+#pragma region( Auswahl )
+		// Ein Menuitem wird gedrückt
+		case PieMenuEreignis::selecting_item: break;
+		// Ein Menuitem wird losgelassen -> ich könnte auch hier erst prüfen, ob es sich um ein
+		// submenu oder eine action an sich handelt...
+		case PieMenuEreignis::open_sub_menu: break;
+		case PieMenuEreignis::execute_action: break;
+#pragma endregion
+#pragma region( Zeitanimation_Helfer )
+		// Bei Zeitanimationen ist der Parameter ein Zeiger auf den bool, der durch das
+		// Ereignis geändert wird.
+		case PieMenuEreignis::zeitanimation_beginnt:
+			if ( p ) *reinterpret_cast< bool * >( p ) = true;
+			if ( _timerId == 0 ) _timerId = startTimer( 1 );
+			break;
+		case PieMenuEreignis::zeitanimation_abgeschlossen:
+			if ( p ) *reinterpret_cast< bool * >( p ) = false;
+			if ( !( _selRectAnimiert || _raAnimiert ) && _timerId ) killTimer( _timerId );
+			break;
+#pragma endregion
+	}
+}
+
 void QPieMenu::updateActionRects()
 {
-	if ( !_actionRectsDirty ) return;
+	if ( !_actionRectsDirty && !_selRectDirty ) return;
 	// Die Action Rects werden auf unterschiedliche Art und Weise dirty.
 	// Wenn wir auch während der Animationen die Action Rects aktuell halten wollen, so muss das
 	// hier geschehen.  Diese Funktion aktualisiert die dreckigen Action Rects je nach aktueller
 	// Darstellungssituation.
+	auto t = QTime::currentTime();
+	if ( _actionRectsDirty )
+	{
+		if ( _raAnimiert )
+		{
+			auto tx = static_cast< qreal >( _raStart.msecsTo( t ) ) / _raDauerMS;
+			// Radius-Winkel-Animation bitte hier durchführen ...
+			if ( tx >= 1. )
+				ereignis( PieMenuEreignis::zeitanimation_abgeschlossen,
+						  reinterpret_cast< quint64 >( &_raAnimiert ) );
+		}
+	}
 
-	// Die direkte Schlussfolgerung ist: die Action Rects können direkt zum Rendern verwendet
-	// werden.
-	// Hier ist ein Arbeitsplatz des State Managers!
-	// TODO!
+	if ( _selRectDirty )
+	{
+		if ( _selRectAnimiert )
+		{
+			auto x = smoothStep( static_cast< qreal >( _selRectStart.msecsTo( t ) )
+									 / ( 1000. * _initData._selRectDuration ),
+								 0., _initData._selRectDuration );
+			_selRect.first.setSize( qLerpSize( _srS.first.size(), _srT.first.size(), x ) );
+			_selRect.first.moveCenter( qLerp2D( _srS.first.center(), _srT.first.center(), x ) );
+			_selRect.second = qLerpRGBA( _srS.second, _srT.second, x );
+			_selRectDirty	= false;
+			if ( x >= 1. )
+				ereignis( PieMenuEreignis::zeitanimation_abgeschlossen,
+						  reinterpret_cast< quint64 >( &_selRectAnimiert ) );
+		}
+	}
 }

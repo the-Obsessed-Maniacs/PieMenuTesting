@@ -10,32 +10,18 @@
 class QStylePainter;
 class QPieMenu;
 
-// Erste Helferstruktur: zum Berechnen der "Standardpositionen" der Items und für die
-// Größenberechnung -> wird gleich mit der 2. Iteration obsolet.
-struct QPieMenuSettings
-{
-	bool	 previousWasSeparator{ true }; // this is true to allow removing the leading separators
-	bool	 contextMenu{ true };
-	qint32	 fw, deskFw, hmarg, vmarg, panelWidth, icone, sp, ih, round{ 0 }, tabWid{ 0 };
-	QMargins menuMargins;
-	qreal	 startR, startO, dir, maxO;
-
-	QPieMenuSettings( QPieMenu *menu );
-	qreal	getStartR( QPieMenu *menu ) const;
-	qreal	nextR( QPieMenu *menu ) const;
-	QPointF SP() const { return QPointF{ qreal( sp ), qreal( sp ) }; }
-};
-
 struct PieStyleData
 {
 	qint32	 fw, deskFw, hmarg, vmarg, panelWidth, icone, sp{ 0 };
 	QMargins menuMargins;
+	QColor	 HL, HLtransparent;
 };
 
 struct PieInitData
 {
 	QPoint _execPoint;
 	qreal  _start0{ qDegreesToRadians( 175 ) }, _max0{ qDegreesToRadians( 285 ) };
+	qreal  _selRectAlpha{ 0.8 }, _selRectDuration{ 0.25 };
 	bool   _negativeDirection{ true }, _isContext{ true }, _isSubMenu{ false };
 
 	void   init( QPoint menuExecPoint, bool isContextMenu = true )
@@ -117,18 +103,11 @@ struct PieData : QList< PieDataItem >
 	}
 };
 
+using PieSelectionRect = QPair< QRectF, QColor >;
 
 class QPieMenu : public QMenu
 {
 	Q_OBJECT
-	// The showState is used to animate the menu - states:
-	// [0]: menu is fully invisible
-	// [0..1[: menu is fading in
-	// [1]: menu is fully visible
-	// ]1..0]: menu is fading out
-	// ]1..2[: some secondary animation is running to reach state 2
-	// [2]: not yet defined - maybe we will use this to show submenus?
-	Q_PROPERTY( qreal showState READ getShowState WRITE setShowState NOTIFY showStateChanged )
 
   public:
 	QPieMenu( QWidget *parent = nullptr )
@@ -136,9 +115,6 @@ class QPieMenu : public QMenu
 	{}
 	QPieMenu( const QString &title, QWidget *parent = nullptr );
 	~QPieMenu() override;
-	// Properties
-	qreal getShowState() const { return _showState; }
-	void  setShowState( qreal value );
 	// Overridden methods
 	QSize sizeHint() const override;
 
@@ -146,7 +122,6 @@ class QPieMenu : public QMenu
 	int	  actionIndex( QAction *a ) const { return actions().indexOf( a ); }
 
   signals:
-	void showStateChanged( qreal );
 
   protected:
 	// Events we need to override:
@@ -182,64 +157,73 @@ class QPieMenu : public QMenu
 	//
 	// Redesign der privaten Menu-Anteile:
 	// -> Typen:
-	using RadiusAngles = QList< QPointF >;
+	//      Implementation von Hover- bzw. selection-State:
+	//      ===============================================
+	enum class PieMenuStatus { hidden = 0, still, closeby, hover, openSub, trigger };
+	enum class PieMenuEreignis {
+		// Ereignisse: Mousezeigerposition vs. _actionRects
+		hover_Item_start,
+		hover_Item_switch,
+		hover_Item_end,
+		// Ereignisse: Mousezeigerposition vs. Mittelpunkt vs. kürzeste Distanz zu einem Element
+		distance_closing_in,
+		distance_leaving,
+		// Ereignisse: andere
+		getsShown,
+		animate,
+		selecting_item,
+		open_sub_menu,
+		execute_action,
+		// ToDo: mehr davon ...
+		zeitanimation_beginnt,
+		zeitanimation_abgeschlossen, // damit zentral geprüft wird, ob der timer zu stoppen ist
+	};
 	// -> Variablen:
-	qreal					_showState{ 0 };
-
-	RadiusAngles			_actionRAs;
-
-	QPropertyAnimation	   *_anim{ nullptr };
-
 	// Die Init-Daten müssen wir zum Teil noch zu beschaffen herausfinden.
-	PieInitData				_initData;
+	PieInitData		 _initData;
 	// Für die Berechnung nötige, relativ konstante, Style-Daten
-	PieStyleData			_styleData;
+	PieStyleData	 _styleData;
 	// _actionPieData:  Hier speichern wir dauerhaft die Größen der Items.  Sie werden (erstmal)
 	// wirklich nur beim Ändern der Action-Liste neu berechnet. Weiterhin speichern wir den Radius
 	// und die Winkel für die "Ruheposition".
-	PieData					_actionPieData;
+	PieData			 _actionPieData;
 	// Dies werden die "immer aktuellen" Action-Rects.  Dort hin werden die Actions gerendert.
-	QList< QRect >			_actionRects;
+	QList< QRect >	 _actionRects;
+	// Wir brauchen zum Rendern allerdings noch eine weitere Information: die Opacity.  Da ggf.
+	// auch die Scale eine Rolle spielen wird, machen wir gleich einen Punkt draus.
+	QList< QPointF > _actionRenderData;
 	// Sobald irgend etwas die aktuellen "_actionRects" invalidiert, wird dies gesetzt!
-	bool					_actionRectsDirty{ true };
+	bool			 _actionRectsDirty{ true };
 	// Das Selection Rect
-	QPair< QRectF, QColor > _selRect;
-	bool					_selRectDirty{ false };
+	PieSelectionRect _selRect, _srS, _srT;
+	bool			 _selRectDirty{ false };
 	// Windows-spezifisch: das transparente Fenster sollte keinen Schatten werfen !0 => geschafft!
-	HWND					_dropShadowRemoved{ nullptr };
+	HWND			 _dropShadowRemoved{ nullptr };
+	// Animationsvariablen:
+	int				 _timerId{ 0 };
+	bool			 _selRectAnimiert{ false }, _raAnimiert{ false }, _folgenAnimiert{ false };
+	QTime			 _selRectStart, _raStart;
+	int				 _raDauerMS;
+	QPoint			 _folgePunkt;
 
 	// -> Methoden:
 	// Style-Daten beschaffen (bei init und bei StyleChange)
-	void					readStyleData();
+	void			 readStyleData();
 	// Die Größen der Boxen berechnen -> Grunddaten
-	void					calculatePieDataSizes();
+	void			 calculatePieDataSizes();
 	// Die Ruhepositionen berechnen
-	void					calculateStillData();
+	void			 calculateStillData();
 	// Kleiner Helfer, den ich ggf. an mehreren Stellen brauche
-	qreal					startR( int runde ) const;
+	qreal			 startR( int runde ) const;
 
 	// Statusverwaltung!
-	// Wir wollen mehrere Animationen haben, ergo gibt es Stati und Übergänge.
-	//  Übergang: hidden -> still
-	//  -   Menu Fade-In -> alle Elemente werden mit ssst sanft vom Zentrum her hinein
-	//      geflogen und geblendet.
-	//  -   Mouse Hover -> das Element unter der Mouse wird derart hervorgehoben, dass
-	//      es 10% vergrößert dargestellt wird, dazu bildet sich ein gerundetes, transparentes
-	//      Auswahlrechteck.
-	// Weiterer kleiner Helfer
-	qreal					currentAlpha( int actionIndex ) const { return 1.; }
-
-	void					updateActionRects();
-	QRect					getNextRect( int actionIndex );
-	QSize					getActionSize( QAction *action );
+	void			 ereignis( PieMenuEreignis e, quint64 parameter = 0ull );
+	void			 updateActionRects();
+	QRect			 getNextRect( int actionIndex );
+	QSize			 getActionSize( QAction *action );
 	// -> Method hiding:
 	// Tearing our menus off is not allowed -> make setting it private
 	using QMenu::setTearOffEnabled;
-
-  private slots:
-
-	// Implementation von Hover- bzw. selection-State:
-	// ===============================================
 };
 
 #endif // QPIEMENU_H
