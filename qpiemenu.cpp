@@ -94,6 +94,7 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 	for ( int i( 0 ); i < ac; ++i )
 	{
 		initStyleOption( &opt, actions().at( i ) );
+		opt.state.setFlag( QStyle::State_Selected, i == _hoverId );
 		opt.rect = _actionRects[ i ].marginsAdded( _styleData.menuMargins );
 		p.setOpacity( _actionRenderData[ i ].x() );
 		// ToDo: Benutze den Skalierfaktor "_actionRenderData[ i ].y()" korrekt.
@@ -384,26 +385,27 @@ void QPieMenu::ereignis( PieMenuEreignis e, quint64 p )
 			p = -1;
 			[[fallthru]];
 		// Beginne, das Selection Rect zu animieren
-		case PieMenuEreignis::hover_Item_start: [[fallthrough]];
+		case PieMenuEreignis::hover_Item_start: [[fallthru]];
 		case PieMenuEreignis::hover_Item_switch:
-			// - nimm die letzte Position des SelRects as Startwert
-			_srS = _selRect;
-			if ( static_cast< int >( p & 0xffffffff ) == -1 )
-				_srT = { {}, _styleData.HLtransparent };
-			else
+			if ( static_cast< int >( p & 0xffffffff ) != _hoverId )
 			{
-				// Was braucht die Selection Rect-Animation?
-				// -> Position und Farbe (alpha in der Farbe)
-				auto r = _actionPieData[ static_cast< int >( p & 0xffffffff ) ]._geo;
-				auto p = r.center();
-				r.setSize( 2 * r.size() );
-				r.moveCenter( p );
-				_srT = { r, _styleData.HL };
+				_hoverId = static_cast< int >( p & 0xffffffff );
+				// - nimm die letzte Position des SelRects as Startwert
+				_srS	 = _selRect;
+				if ( _hoverId == -1 ) _srT = { {}, _styleData.HLtransparent };
+				else // Was braucht die Selection Rect-Animation? -> Position und Farbe
+				{
+					auto r = _actionPieData[ _hoverId ]._geo;
+					auto p = r.center();
+					r.setSize( 2 * r.size() );
+					r.moveCenter( p );
+					_srT = { r, _styleData.HL };
+				}
+				// - initiiere SelRectAnimation bzw. setze ihre Werte zurück
+				_selRectStart = t;
+				ereignis( PieMenuEreignis::zeitanimation_beginnt,
+						  reinterpret_cast< quint64 >( &_selRectAnimiert ) );
 			}
-			// - initiiere SelRectAnimation bzw. setze ihre Werte zurück
-			_selRectStart = t;
-			ereignis( PieMenuEreignis::zeitanimation_beginnt,
-					  reinterpret_cast< quint64 >( &_selRectAnimiert ) );
 			break;
 #pragma endregion
 #pragma region( EchtzeitAnimation )

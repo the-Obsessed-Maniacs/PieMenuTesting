@@ -28,16 +28,19 @@ set(PROJECT_SOURCES
 		Helpers.h
 		BerechnungsModell.h
 		BerechnungsModell.cpp
-
+        qpiemenu.h
+		qpiemenu.cpp
+		FastTrigo/FastTrigo.h
+		FastTrigo/FastTrigo.cpp
         ${TS_FILES}
 )
+include_directories( FastTrigo )
 message( NOTICE "QT Version: ${QT_VERSION}" )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(PieMenuTesting
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
-        qpiemenu.h qpiemenu.cpp
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET PieMenuTesting APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR

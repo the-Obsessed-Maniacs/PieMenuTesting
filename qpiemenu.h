@@ -200,7 +200,7 @@ class QPieMenu : public QMenu
 	// Windows-spezifisch: das transparente Fenster sollte keinen Schatten werfen !0 => geschafft!
 	HWND			 _dropShadowRemoved{ nullptr };
 	// Animationsvariablen:
-	int				 _timerId{ 0 };
+	int				 _timerId{ 0 }, _hoverId{ -1 };
 	bool			 _selRectAnimiert{ false }, _raAnimiert{ false }, _folgenAnimiert{ false };
 	QTime			 _selRectStart, _raStart;
 	int				 _raDauerMS;

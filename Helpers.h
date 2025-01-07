@@ -8,6 +8,7 @@
 #include <QRectF>
 #include <QSizeF>
 #include <QtMath>
+#include <fasttrigo.h>
 
 QT_BEGIN_NAMESPACE
 template < typename T >
