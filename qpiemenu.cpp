@@ -144,6 +144,15 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 		opt.rect = opt.rect.marginsRemoved( _styleData.menuMargins );
 		p.drawControl( QStyle::CE_MenuItem, opt );
 	}
+	if ( _selRect.first.isValid() )
+	{
+		p.setOpacity( 1. ); // In der Hoffnung, dass der Alpha-Wert der Brush berücksichtigt wird...
+		auto r =
+			qMin( qreal( _styleData.sp ), qMin( _selRect.first.width(), _selRect.first.height() ) );
+		p.setPen( Qt::NoPen );
+		p.setBrush( _selRect.second );
+		p.drawRoundedRect( _selRect.first, r, r );
+	}
 }
 
 void QPieMenu::showEvent( QShowEvent *e )

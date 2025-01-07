@@ -184,36 +184,39 @@ class QPieMenu : public QMenu
 	// -> Typen:
 	using RadiusAngles = QList< QPointF >;
 	// -> Variablen:
-	qreal				_showState{ 0 };
+	qreal					_showState{ 0 };
 
-	RadiusAngles		_actionRAs;
+	RadiusAngles			_actionRAs;
 
-	QPropertyAnimation *_anim{ nullptr };
+	QPropertyAnimation	   *_anim{ nullptr };
 
 	// Die Init-Daten müssen wir zum Teil noch zu beschaffen herausfinden.
-	PieInitData			_initData;
+	PieInitData				_initData;
 	// Für die Berechnung nötige, relativ konstante, Style-Daten
-	PieStyleData		_styleData;
+	PieStyleData			_styleData;
 	// _actionPieData:  Hier speichern wir dauerhaft die Größen der Items.  Sie werden (erstmal)
 	// wirklich nur beim Ändern der Action-Liste neu berechnet. Weiterhin speichern wir den Radius
 	// und die Winkel für die "Ruheposition".
-	PieData				_actionPieData;
+	PieData					_actionPieData;
 	// Dies werden die "immer aktuellen" Action-Rects.  Dort hin werden die Actions gerendert.
-	QList< QRect >		_actionRects;
+	QList< QRect >			_actionRects;
 	// Sobald irgend etwas die aktuellen "_actionRects" invalidiert, wird dies gesetzt!
-	bool				_actionRectsDirty{ true };
+	bool					_actionRectsDirty{ true };
+	// Das Selection Rect
+	QPair< QRectF, QColor > _selRect;
+	bool					_selRectDirty{ false };
 	// Windows-spezifisch: das transparente Fenster sollte keinen Schatten werfen !0 => geschafft!
-	HWND				_dropShadowRemoved{ nullptr };
+	HWND					_dropShadowRemoved{ nullptr };
 
 	// -> Methoden:
 	// Style-Daten beschaffen (bei init und bei StyleChange)
-	void				readStyleData();
+	void					readStyleData();
 	// Die Größen der Boxen berechnen -> Grunddaten
-	void				calculatePieDataSizes();
+	void					calculatePieDataSizes();
 	// Die Ruhepositionen berechnen
-	void				calculateStillData();
+	void					calculateStillData();
 	// Kleiner Helfer, den ich ggf. an mehreren Stellen brauche
-	qreal				startR( int runde ) const;
+	qreal					startR( int runde ) const;
 
 	// Statusverwaltung!
 	// Wir wollen mehrere Animationen haben, ergo gibt es Stati und Übergänge.
@@ -224,11 +227,11 @@ class QPieMenu : public QMenu
 	//      es 10% vergrößert dargestellt wird, dazu bildet sich ein gerundetes, transparentes
 	//      Auswahlrechteck.
 	// Weiterer kleiner Helfer
-	qreal				currentAlpha( int actionIndex ) const { return 1.; }
+	qreal					currentAlpha( int actionIndex ) const { return 1.; }
 
-	void				updateActionRects();
-	QRect				getNextRect( int actionIndex );
-	QSize				getActionSize( QAction *action );
+	void					updateActionRects();
+	QRect					getNextRect( int actionIndex );
+	QSize					getActionSize( QAction *action );
 	// -> Method hiding:
 	// Tearing our menus off is not allowed -> make setting it private
 	using QMenu::setTearOffEnabled;
