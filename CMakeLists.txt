@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(PieMenuTesting VERSION 0.1 LANGUAGES CXX)
 
+option( DBG_EVENTS "Enable event-logging in QPieMenu" off )
 #include( EnableIntrinsics.cmake )
 #add_compile_definitions( SIMDE_ARCH_X86_SVML )
 
@@ -34,6 +35,10 @@ set(PROJECT_SOURCES
 		FastTrigo/FastTrigo.cpp
         ${TS_FILES}
 )
+add_definitions( -DNOMINMAX )
+if ( ${DBG_EVENTS} )
+	add_definitions( -DDEBUG_EVENTS )
+endif()
 include_directories( FastTrigo )
 message( NOTICE "QT Version: ${QT_VERSION}" )
 

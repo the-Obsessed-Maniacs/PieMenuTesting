@@ -4,6 +4,7 @@
 #include <QEvent>
 #include <QMetaProperty>
 #include <QPaintEvent>
+#include <QPainterPath>
 #include <QStyleOptionMenuItem>
 #include <QStylePainter>
 #include <QWidgetAction>
@@ -49,12 +50,14 @@ int QPieMenu::actionIndexAt( const QPoint &pt ) const
 
 bool QPieMenu::event( QEvent *e )
 {
-	// Ein Drop-Shadow um das Menu herum sieht nicht brauchbar aus, deshalb
-	// entfernen wir zumindest unter Windows den DropShadow tief in der WinAPI
 	switch ( e->type() )
 	{
-		case QEvent::StyleChange: readStyleData(); return true;
+		case QEvent::ApplicationPaletteChange: [[fallthru]];
+		case QEvent::PaletteChange: [[fallthru]];
+		case QEvent::StyleChange: readStyleData(); break;
 #if _WIN32
+			// Ein Drop-Shadow um das Menu herum sieht nicht brauchbar aus, deshalb
+			// entferne ich zumindest unter Windows den DropShadow tief in der WinAPI
 		case QEvent::WinIdChange:
 			{
 				HWND hwnd = reinterpret_cast< HWND >( winId() );
@@ -68,8 +71,24 @@ bool QPieMenu::event( QEvent *e )
 				return true;
 			}
 #endif
+#ifdef DEBUG_EVENTS
+		// Events, die ich nicht in der Ausgabe sehen möchte:
+		case QEvent::MouseMove:
+		case QEvent::Paint:
+		case QEvent::Show:
+		case QEvent::ShowToParent:
+		case QEvent::ActionAdded:
+		case QEvent::ActionRemoved:
+		case QEvent::ActionChanged:
+		case QEvent::Timer:
+		case QEvent::UpdateRequest:
+			/* einfach mal nix tun */ break;
+		// übrige Events zum Debugger rausschicken
+		default: qDebug() << "QPieMenu::event(" << e << ") passed down..."; break;
+#else
+		default: break;
+#endif
 	}
-	qDebug() << "QPieMenu::event(" << e << ") passed down...";
 	return QMenu::event( e );
 }
 
@@ -82,6 +101,8 @@ void QPieMenu::actionEvent( QActionEvent *event )
 	_actionRectsDirty = false;
 	updateGeometry();
 	event->accept();
+	// QMenuPrivate at least needs to know about whatever they think is needed
+	QMenu::actionEvent( event );
 }
 
 void QPieMenu::paintEvent( QPaintEvent *e )
@@ -91,33 +112,72 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 	p.translate( -_actionPieData._boundingRect.topLeft() );
 	QStyleOptionMenuItem opt;
 	auto				 ac = actions().count();
-	for ( int i( 0 ); i < ac; ++i )
+	// Folgen: Sektorhighlighting
+	if ( _folgeId != -1 )
 	{
-		initStyleOption( &opt, actions().at( i ) );
-		opt.state.setFlag( QStyle::State_Selected, i == _hoverId );
-		opt.rect = _actionRects[ i ].marginsAdded( _styleData.menuMargins );
-		p.setOpacity( _actionRenderData[ i ].x() );
-		// ToDo: Benutze den Skalierfaktor "_actionRenderData[ i ].y()" korrekt.
-		//  z.B.:
-		opt.font.setPointSizeF( opt.font.pointSizeF() * _actionRenderData[ i ].y() );
-		p.drawPrimitive( QStyle::PE_PanelMenu, opt );
-		opt.rect = opt.rect.marginsRemoved( _styleData.menuMargins );
-		p.drawControl( QStyle::CE_MenuItem, opt );
+		// wir brauchen (wieder, weil haben wir ja schonmal ausgerechnet):
+		// -> Entfernung zum Mittelpunkt
+		auto dm	 = length( _folgePunkt );
+		// -> Entfernung zum nächsten Element
+		auto de	 = boxDistance( _folgePunkt, _actionRects[ _folgeId ] );
+		// -> wenn wir den bzw. die Winkel und radien nicht ausrechnen bräuchten?
+		auto om	 = _actionPieData[ _folgeId ]._angle;
+		auto r	 = _actionPieData._radius;
+		auto r0	 = qMin( qMax( 10., r / 8 ), 0.8 * r );
+		auto dir = _initData._negativeDirection ? -1. : 1.;
+		auto w1 =
+			_folgeId > 0 ? _actionPieData[ _folgeId - 1 ]._angle : om - dir * ( 0.25 * M_PI_4 );
+		auto		 w2	 = _folgeId + 1 < ac ? _actionPieData[ _folgeId + 1 ]._angle
+											 : om + dir * ( 0.25 * M_PI_4 );
+		// die jeweiligen Winkeldifferenzen:
+		auto		 dw1 = dir * ( om - w1 );
+		auto		 dw2 = dir * ( w2 - om );
+		QPainterPath path;
+		// Ich fange mit dem kleinen Arc an:
+		path.arcTo( { { -r0, -r0 }, QPointF{ r0, r0 } }, dw1, dw2 );
+		// Dann gehe ich bis zum Mittelpunkt des Nachbarn
+		path.lineTo( r * qSinCos( dw2 ) );
+		// Mach den großen Bogen
+		path.arcTo( { { -r, -r }, QPointF{ r, r } }, dw2, dw2 - dw1 );
+		// Und schliesse den Pfad ab -> letzte Linie bis zum Startpunkt
+		path.closeSubpath();
+		QConicalGradient gradient( {}, qRadiansToDegrees( om ) );
+		gradient.setColorAt( 0., _styleData.HL );
+		gradient.setColorAt( qAbs( dw1 * M_2_PI ), _styleData.HLtransparent );
+		gradient.setColorAt( qAbs( dw2 * M_2_PI ), _styleData.HLtransparent );
+		gradient.setColorAt( 1., _styleData.HL );
+		p.strokePath( path, p.pen() );
+		p.fillPath( path, gradient );
 	}
+	// SelectionRect
 	if ( _selRect.first.isValid() )
 	{
-		p.setOpacity( 1. ); // In der Hoffnung, dass der Alpha-Wert der Brush berücksichtigt wird...
+		// p.setOpacity( 1. ); // In der Hoffnung, dass der Alpha-Wert der Brush berücksichtigt
+		// wird...
 		auto r =
 			qMin( qreal( _styleData.sp ), qMin( _selRect.first.width(), _selRect.first.height() ) );
 		p.setPen( Qt::NoPen );
 		p.setBrush( _selRect.second );
 		p.drawRoundedRect( _selRect.first, r, r );
 	}
+	// Zum Schluss die Elemente drüberbügeln
+	// for ( int i( 0 ); i < ac; ++i )
+	//{
+	//	initStyleOption( &opt, actions().at( i ) );
+	//	opt.state.setFlag( QStyle::State_Selected, ( i == _hoverId ) && !_selRectAnimiert );
+	//	opt.rect = _actionRects[ i ].marginsAdded( _styleData.menuMargins );
+	//	p.setOpacity( _actionRenderData[ i ].x() );
+	//	// ToDo: Benutze den Skalierfaktor "_actionRenderData[ i ].y()" korrekt.
+	//	//  z.B.:
+	//	opt.font.setPointSizeF( opt.font.pointSizeF() * _actionRenderData[ i ].y() );
+	//	p.drawPrimitive( QStyle::PE_PanelMenu, opt );
+	//	opt.rect = opt.rect.marginsRemoved( _styleData.menuMargins );
+	//	p.drawControl( QStyle::CE_MenuItem, opt );
+	//}
 }
 
 void QPieMenu::showEvent( QShowEvent *e )
 {
-	qDebug() << "QPieMenu::showEvent(" << e << ")";
 	// An dieser Stelle sollten wir die Position zentrieren ...
 	updateActionRects();
 	setGeometry( geometry().translated( _actionPieData._boundingRect.topLeft() ) );
@@ -130,14 +190,31 @@ void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 {
 	if ( !isVisible() ) return;
 
-	// Find action at position:
-	auto p	= e->position().toPoint() + _actionPieData._boundingRect.topLeft();
-	auto ai = actionIndexAt( p );
-	qDebug() << "QPieMenu::mouseMoveEvent(" << p << "):"
-			 << ( ai >= 0 ? tr( "Treffer = '%1'" ).arg( actions().at( ai )->text() )
-						  : tr( "Daneben" ) )
-					.toUtf8();
+	// Finde die nächstgelegene Aktion und den Abstand zum Mittelpunkt
+	auto  p = e->position().toPoint() + _actionPieData._boundingRect.topLeft();
+	qreal d, dm = qSqrt( QPoint::dotProduct( p, p ) ), r = _actionPieData._radius,
+			 minmax = qMin( qMax( 10., r / 8 ), 0.8 * r );
+	int	 id( -1 );
+	bool hit		= hitTest( p, d, id );
+	// Weiter weg vom Zentrum als das Minimum, aber näher am Element als Radius?
+	bool close		= ( dm > minmax ) && ( d <= r );
+	auto posEncoded = ( qint64( p.x() ) << 32 ) | p.y();
+
+	// Ok, jetzt wissen wir Bescheid - erstellen wir die entsprechenden Ereignisse
+	// -> der Hit-Test sagt uns, ob wir über einem Item hovern
+	if ( hit ) ereignis( PieMenuEreignis::hover_Item_start, id );
+	else ereignis( PieMenuEreignis::hover_Item_end, posEncoded );
+	// -> der Close-Test hat ergeben, ob der Cursor in der Nähe eines Items ist
+	if ( close ) ereignis( PieMenuEreignis::distance_closing_in, posEncoded, id );
+	else ereignis( PieMenuEreignis::distance_leaving, posEncoded );
+	// Und wenn wir noch immer der gleichen ID folgen, wird animiert...
+	if ( _folgeId == id && close ) ereignis( PieMenuEreignis::animate, posEncoded, id );
 	e->accept();
+}
+
+void QPieMenu::timerEvent( QTimerEvent *e )
+{
+	if ( e->timerId() == _timerId ) ereignis( PieMenuEreignis::animate ), e->accept();
 }
 
 void QPieMenu::readStyleData()
@@ -159,6 +236,7 @@ void QPieMenu::readStyleData()
 	_styleData.HL = _styleData.HLtransparent = palette().color( QPalette::Highlight );
 	_styleData.HL.setAlphaF( _initData._selRectAlpha );
 	_styleData.HLtransparent.setAlphaF( 0.0 );
+	_selRect.second = _hoverId == -1 ? _styleData.HLtransparent : _styleData.HL;
 }
 
 void QPieMenu::calculatePieDataSizes()
@@ -202,6 +280,8 @@ void QPieMenu::calculatePieDataSizes()
 	}
 	// Schritt #2: Größen (nach)berechnen
 	bool previousWasSeparator = true;
+	_actionPieData.resizeForOverwrite( actions().count() );
+	_actionRenderData.resizeForOverwrite( actions().count() );
 	for ( int i( 0 ); i < actions().count(); ++i )
 	{
 		action = actions().at( i );
@@ -243,12 +323,13 @@ void QPieMenu::calculatePieDataSizes()
 			if ( sz.isValid() ) sz.rwidth() += tab;
 			previousWasSeparator = isPlainSep;
 		}
-		_actionPieData[ i ] = sz;
+		_actionPieData[ i ]	   = sz;
+		_actionRenderData[ i ] = { 1., 1. };
 		if ( sz.isValid() ) allSz += sz;
 		else ++noSzItems;
 	}
-	// Speichere die Durchschnittsgröße der Items mit!
-	_actionPieData._avgSz = allSz / ( actions().count() - noSzItems );
+	// Speichere die Durchschnittsgröße der Items mit! (Division durch 0 ist zu verhindern)
+	if ( auto cnt = actions().count() - noSzItems ) _actionPieData._avgSz = allSz / cnt;
 }
 
 void QPieMenu::calculateStillData()
@@ -336,10 +417,12 @@ void QPieMenu::calculateStillData()
 			_actionPieData[ i ]._angle = 0.;
 		}
 	}
-	// Wir justieren zur Sicherheit mal jeweils um die halbe Durchschnittsgröße.
+	// Justiere zur Sicherheit mal jeweils um die halbe Durchschnittsgröße.
 	auto xa = _actionPieData._avgSz.width() >> 1;
 	auto ya = _actionPieData._avgSz.height() >> 1;
 	_actionPieData._boundingRect.adjust( -xa, -ya, xa, ya );
+	// Nicht den Radius vergessen, der wird später gebraucht!!!
+	_actionPieData._radius = r;
 }
 
 qreal QPieMenu::startR( int runde ) const
@@ -358,61 +441,91 @@ qreal QPieMenu::startR( int runde ) const
 	return r3 + ( runde - 3 ) * ( asz.height() >> 1 );
 }
 
-void QPieMenu::ereignis( PieMenuEreignis e, quint64 p )
+void QPieMenu::ereignis( PieMenuEreignis e, qint64 p, qint64 p2 )
 {
-	auto t = QTime::currentTime();
+	// output helper macro
+#define a_sr "start:" << _srS << "ziel:" << _srE << "startzeit:" << t
+
+	auto t			= QTime::currentTime();
+	auto posDecoded = QPoint{ p >> 32, int( p & 0xffffffffll ) };
 	switch ( e )
 	{
-#pragma region( Zeitanimationen )
-		// Schalte die Animation zum Anzeigen ein
-		case PieMenuEreignis::getsShown: break;
+#pragma region( Animationen_allgemein )
 		// Schreibe aktuelle Animationen weiter, ggf. timer stoppen
 		case PieMenuEreignis::animate:
 			// Läuft die SelRect-Animation?
 			if ( _selRectAnimiert ) _selRectDirty = true;
 			if ( _raAnimiert ) _actionRectsDirty = true;
 			if ( _folgenAnimiert )
-				_actionRectsDirty = true,
-				_folgePunkt		  = { static_cast< int >( p & 0xffffffff ),
-									  static_cast< int >( ( p >> 32 ) & 0xffffffff ) };
-			update();
+				_actionRectsDirty = true, _folgePunkt = posDecoded, _folgeId = p2;
+			if ( _actionRectsDirty || _selRectDirty ) update();
 			break;
 #pragma endregion
-#pragma region( HOVER )
-		// Beginne, das SelRect wieder zu verstecken
-		case PieMenuEreignis::hover_Item_end:
-			// - setze das Zentrum und eine Größe von (0,0) als Zielwert
-			p = -1;
-			[[fallthru]];
-		// Beginne, das Selection Rect zu animieren
-		case PieMenuEreignis::hover_Item_start: [[fallthru]];
-		case PieMenuEreignis::hover_Item_switch:
-			if ( static_cast< int >( p & 0xffffffff ) != _hoverId )
+#pragma region( Zeitanimationen )
+		// Schalte die Animation zum Anzeigen ein
+		case PieMenuEreignis::getsShown:
+			qDebug() << "QPieMenu::ereignis( gets_shown ) -> current setup:" << _actionPieData
+					 << _actionRects;
+			break;
+		// Beginne, das Selection Rect zu animieren (p: ID der Aktion)
+		case PieMenuEreignis::hover_Item_start:
+			if ( p != _hoverId )
 			{
-				_hoverId = static_cast< int >( p & 0xffffffff );
+				_hoverId = int( p );
 				// - nimm die letzte Position des SelRects as Startwert
 				_srS	 = _selRect;
-				if ( _hoverId == -1 ) _srT = { {}, _styleData.HLtransparent };
+				// Falls wir mal das Zentrum highlighten wollen ...
+				if ( _hoverId == -1 ) _srE = { {}, _styleData.HLtransparent };
 				else // Was braucht die Selection Rect-Animation? -> Position und Farbe
 				{
 					auto r = _actionPieData[ _hoverId ]._geo;
 					auto p = r.center();
-					r.setSize( 2 * r.size() );
+					r.setSize( 1.2 * r.size() );
 					r.moveCenter( p );
-					_srT = { r, _styleData.HL };
+					_srE = { r, _styleData.HL };
 				}
 				// - initiiere SelRectAnimation bzw. setze ihre Werte zurück
 				_selRectStart = t;
 				ereignis( PieMenuEreignis::zeitanimation_beginnt,
 						  reinterpret_cast< quint64 >( &_selRectAnimiert ) );
+				qDebug() << "=> Zeitanimation Selection Rect #" << _hoverId << a_sr;
+			}
+			break;
+		// Beginne, das SelRect wieder zu verstecken (p: Zielpunkt 2x32 Bit in 64 Bit gepackt)
+		case PieMenuEreignis::hover_Item_end:
+			// - setze das Zentrum und eine Größe von (0,0) als Zielwert
+			if ( _hoverId != -1 )
+			{
+				_hoverId	  = -1;
+				_srS		  = _selRect;
+				_srE		  = { { posDecoded, posDecoded }, _styleData.HLtransparent };
+				_selRectStart = t;
+				ereignis( PieMenuEreignis::zeitanimation_beginnt,
+						  reinterpret_cast< quint64 >( &_selRectAnimiert ) );
+				qDebug() << "=> Zeitanimation Selection Rect Hide" << a_sr;
 			}
 			break;
 #pragma endregion
 #pragma region( EchtzeitAnimation )
 		// Starte die Echtzeitanimation
-		case PieMenuEreignis::distance_closing_in: break;
+		case PieMenuEreignis::distance_closing_in:
+			if ( !_folgenAnimiert || p2 != _folgeId )
+			{
+				_folgenAnimiert = true;
+				_folgePunkt		= posDecoded;
+				_folgeId		= p2;
+				qWarning() << "FOLGE" << _folgeId;
+			}
+			break;
 		// Beende die Echtzeitanimation
-		case PieMenuEreignis::distance_leaving: break;
+		case PieMenuEreignis::distance_leaving:
+			if ( _folgenAnimiert )
+			{
+				_folgenAnimiert = false;
+				_folgeId		= -1;
+				qWarning() << "STOPP";
+			}
+			break;
 #pragma endregion
 #pragma region( Auswahl )
 		// Ein Menuitem wird gedrückt
@@ -427,14 +540,17 @@ void QPieMenu::ereignis( PieMenuEreignis e, quint64 p )
 		// Ereignis geändert wird.
 		case PieMenuEreignis::zeitanimation_beginnt:
 			if ( p ) *reinterpret_cast< bool * >( p ) = true;
-			if ( _timerId == 0 ) _timerId = startTimer( 1 );
+			if ( _timerId == 0 ) _timerId = startTimer( 10 );
 			break;
 		case PieMenuEreignis::zeitanimation_abgeschlossen:
 			if ( p ) *reinterpret_cast< bool * >( p ) = false;
-			if ( !( _selRectAnimiert || _raAnimiert ) && _timerId ) killTimer( _timerId );
+			if ( !( _selRectAnimiert || _raAnimiert ) && _timerId )
+				_timerId = ( killTimer( _timerId ), 0 );
+			qDebug() << "=> Zeitanimation abgeschlossen. Übrige Timer (0=keine):" << _timerId;
 			break;
 #pragma endregion
 	}
+#undef a_sr
 }
 
 void QPieMenu::updateActionRects()
@@ -455,22 +571,120 @@ void QPieMenu::updateActionRects()
 				ereignis( PieMenuEreignis::zeitanimation_abgeschlossen,
 						  reinterpret_cast< quint64 >( &_raAnimiert ) );
 		}
+		if ( _folgenAnimiert )
+		{
+			// nutze: _folgePunkt, _folgeId
+			// Zuerst mal wollen wir nur den Sektor highlighten.
+			// => das geht am Einfachsten, wenn wir das Sector-HighLighting direkt im paintEvent
+			// ausrechnen.  Dort können wir einen Gradienten passend bauen und einen Kreissektor
+			// damit zeichnen ...
+
+			// Der eigentliche Spass geht dort los, wo wir wirklich ein Rect Vergrößern und den Rest
+			// rechts und links davon ausweichen lassen.
+		}
+		_actionRectsDirty = false;
 	}
 
 	if ( _selRectDirty )
 	{
 		if ( _selRectAnimiert )
 		{
-			auto x = smoothStep( static_cast< qreal >( _selRectStart.msecsTo( t ) )
-									 / ( 1000. * _initData._selRectDuration ),
-								 0., _initData._selRectDuration );
-			_selRect.first.setSize( qLerpSize( _srS.first.size(), _srT.first.size(), x ) );
-			_selRect.first.moveCenter( qLerp2D( _srS.first.center(), _srT.first.center(), x ) );
-			_selRect.second = qLerpRGBA( _srS.second, _srT.second, x );
-			_selRectDirty	= false;
+			auto x = smoothStep( static_cast< qreal >( _selRectStart.msecsTo( t ) ) / 1000., 0.,
+								 _initData._selRectDuration );
+			_selRect( x, _srS, _srE );
 			if ( x >= 1. )
 				ereignis( PieMenuEreignis::zeitanimation_abgeschlossen,
 						  reinterpret_cast< quint64 >( &_selRectAnimiert ) );
+			// qDebug() << "=> Selection Rect animiert:" << x << _selRect;
+		}
+		_selRectDirty = false;
+	}
+}
+
+bool QPieMenu::hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID )
+{
+	int d, md = std::numeric_limits< int >::max();
+	for ( auto i( 0 ); i < _actionRects.count(); ++i )
+	{
+		d = boxDistance( p, _actionRects.at( i ) );
+		if ( d < md ) md = d, minDistID = i;
+	}
+	if ( Q_LIKELY( md < std::numeric_limits< int >::max() ) )
+		mindDistance = static_cast< qreal >( md );
+	return md <= 0; // Hit bei Distance <= 0 ...
+}
+
+#pragma optimize( "t", on )
+inline PieSelectionRect &PieSelectionRect::operator()( const qreal f, const PieSelectionRect &a,
+													   const PieSelectionRect &b )
+{
+	// We've reached the future some time ago?
+	// https://fgiesen.wordpress.com/2012/08/15/linear-interpolation-past-present-and-future/
+	// =>   actually, that blog post contains a small mistake, maybe because AVX wasn't born
+	//      at the time of writing.
+	//          fma( a, b, c ) = ab + c  <=>  fnma( a, b, c ) = -ab + c     (Intel DOCs)
+	//          lerp: f(t,f0,f1) = f0 * (1-t) + f1 * t = f1*t -f0*t + f0    (simple Algebra)
+	//      Ryg wrote: "lerp_3(t, a, b) = fma(t, b, fnms(t, a, a))" - this is not correct in
+	//      current AVX/FMA speech.
+	//      What we need regarding algebra is mentioned above:
+	//          fma( t, b, fnma( t, a, a ) )
+	//          fma( b, t, fnma( a, t, a ) ) -> this may be nicer to read ;)
+	//      And - "BTATA" - there you have the next gen lerp, as long as you make sure to
+	//      clamp t into [0.0 .. 1.0] !!!111!!11!!!1!!!
+	// --------------------------------------------------------------------------------------
+	// SSE Shuffle-Maskem der RGBA-Werte aus QColor
+	const __m128i QCload  = _mm_set_epi64x( 0xffff0b0affff0908ull, 0xffff0706ffff0504ull );
+	const __m128i QCback  = _mm_set_epi64x( 0xffffffff0d0c0908ull, 0x05040100ffffffffull );
+	const __m128i QCstore = _mm_set_epi64x( 0x00000000ffffffffull, 0xffffffff00000000ull );
+
+	// Wir wissen, dass QRectF intern einfach 4 doubles abspeichert.  Die können wir ja direkt
+	// laden. Ebenso wissen wir, dass QColor eine 4-Bytes-Spec beinhaltet und darauf folgt ein
+	// ushort[5] Array mit den Farbdaten.  Können wir also alles stream-Laden.
+	auto		  t		  = _mm256_set1_pd( f );
+	auto		  r0	  = _mm256_load_pd( reinterpret_cast< const qreal * >( &a ) );
+	auto		  cc0	  = _mm_load_si128( reinterpret_cast< const __m128i * >( &a ) + 2 );
+	auto		  r1	  = _mm256_load_pd( reinterpret_cast< const qreal * >( &b ) );
+	auto		  cc1	  = _mm_load_si128( reinterpret_cast< const __m128i * >( &b ) + 2 );
+	// Maybe a manual split-up of operations increases parallelity
+	auto		  c0	  = _mm256_cvtepi32_pd( _mm_shuffle_epi8( cc0, QCload ) );
+	auto		  c1	  = _mm256_cvtepi32_pd( _mm_shuffle_epi8( cc1, QCload ) );
+	// -> directly store it in here
+	_mm256_store_pd( reinterpret_cast< qreal * >( &first ),
+					 /* Lerp the QRectF*/ _mm256_fmadd_pd( r1, t, _mm256_fnmadd_pd( r0, t, r0 ) ) );
+	_mm_maskstore_epi32( reinterpret_cast< int * >( &second ), QCstore,
+						 /*Lerp the colors*/
+						 _mm_shuffle_epi8( _mm256_cvtpd_epi32( _mm256_fmadd_pd(
+											   c1, t, _mm256_fnmadd_pd( c0, t, c0 ) ) ),
+										   QCback ) );
+	return *this;
+}
+#pragma optimize( "", on )
+
+
+QDebug operator<<( QDebug dbg, const PieDataItem &pd )
+{
+	QDebugStateSaver s( dbg );
+	auto			 t = QString( pd._ok ? " => dataset complete." : "=> incomplete: " );
+	if ( !pd._ok )
+	{
+		t += "missing ";
+		t += ( !pd._s ? "size" : ( !pd._a ? "angle" : "position" ) );
+		if ( pd._s && !pd._a && !pd._p ) t += ", position";
+		else
+		{
+			if ( !pd._a ) t += ", angle";
+			if ( !pd._p ) t += ", position";
 		}
 	}
+	dbg << "\u03c6 = " << pd._angle << ", R = " << pd._geo << t.toUtf8().data();
+	return dbg;
+}
+
+QDebug operator<<( QDebug dbg, const PieData &pd )
+{
+	QDebugStateSaver s( dbg );
+	dbg << "PieData( #items =" << pd.count() << "r =" << pd._radius << ", avg.Size =" << pd._avgSz
+		<< ", bounds =" << pd._boundingRect << ", Intersections:" << pd._intersections.count()
+		<< ")";
+	return dbg;
 }

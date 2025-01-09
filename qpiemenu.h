@@ -1,15 +1,20 @@
-#ifndef QPIEMENU_H
-#define QPIEMENU_H
+/**************************************************************************************************
+ * QPieMenu - eine Implementation radialer Kontextmenüs in Qt
+ * ==========================================================
+ * Author: Stefan <St0fF / the0bsessedManiacs> Kaps
+ * Entwicklungsbeginn: 31.12.2024
+ *************************************************************************************************/
+#pragma once
 
 #include "Helpers.h"
 
 #include <QMenu>
-#include <QPropertyAnimation>
 #include <QTime>
 
 class QStylePainter;
 class QPieMenu;
 
+#pragma region( konfigurierbare_Daten )
 struct PieStyleData
 {
 	qint32	 fw, deskFw, hmarg, vmarg, panelWidth, icone, sp{ 0 };
@@ -21,7 +26,7 @@ struct PieInitData
 {
 	QPoint _execPoint;
 	qreal  _start0{ qDegreesToRadians( 175 ) }, _max0{ qDegreesToRadians( 285 ) };
-	qreal  _selRectAlpha{ 0.8 }, _selRectDuration{ 0.25 };
+	qreal  _selRectAlpha{ 0.5 }, _selRectDuration{ 0.5 };
 	bool   _negativeDirection{ true }, _isContext{ true }, _isSubMenu{ false };
 
 	void   init( QPoint menuExecPoint, bool isContextMenu = true )
@@ -29,7 +34,8 @@ struct PieInitData
 		_execPoint = menuExecPoint, _isContext = isContextMenu;
 	}
 };
-
+#pragma endregion
+#pragma region( Interne_Datenstrukturen_Actiondata )
 struct alignas( 32 ) PieDataItem
 {
 	QRect		   _geo;
@@ -43,6 +49,7 @@ struct alignas( 32 ) PieDataItem
 	constexpr auto operator=( const QSize &sz ) { _geo.setSize( sz ), _s = true; }
 	constexpr auto operator=( const qreal angle ) { _angle, _a = angle, true; }
 };
+QDebug operator<<( QDebug dbg, const PieDataItem &pd );
 
 struct PieData : QList< PieDataItem >
 {
@@ -102,13 +109,29 @@ struct PieData : QList< PieDataItem >
 		return !hasI;
 	}
 };
+inline QDebug operator<<( QDebug dbg, const PieData &pd );
+#pragma endregion
+#pragma region( Animationshelfer_SelectionRect )
+struct PieSelectionRect
+{
+	QRectF					 first;
+	QColor					 second;
+	inline PieSelectionRect &operator()( const qreal f, const PieSelectionRect &a,
+										 const PieSelectionRect &b );
+};
 
-using PieSelectionRect = QPair< QRectF, QColor >;
+inline QDebug operator<<( QDebug dbg, const PieSelectionRect &r )
+{
+	QDebugStateSaver s( dbg );
+	dbg.nospace() << "PSR( " << r.first << ", " << r.second << " )";
+	return dbg;
+}
+#pragma endregion
 
 class QPieMenu : public QMenu
 {
 	Q_OBJECT
-
+#pragma region( public_overrides_of_QMenu )
   public:
 	QPieMenu( QWidget *parent = nullptr )
 		: QPieMenu( QString(), parent )
@@ -122,7 +145,8 @@ class QPieMenu : public QMenu
 	int	  actionIndex( QAction *a ) const { return actions().indexOf( a ); }
 
   signals:
-
+#pragma endregion
+#pragma region( protected_overrides_of_QMenu )
   protected:
 	// Events we need to override:
 	// Master-Event-Handler ("für alles Andere")
@@ -151,8 +175,9 @@ class QPieMenu : public QMenu
 	void keyPressEvent( QKeyEvent *e ) override { /*QMenu::keyPressEvent( e );*/ }
 	void mousePressEvent( QMouseEvent *e ) override { /*QMenu::mousePressEvent( e );*/ }
 	void mouseReleaseEvent( QMouseEvent *e ) override { /*QMenu::mouseReleaseEvent( e );*/ }
-	void timerEvent( QTimerEvent *e ) override { /*QMenu::timerEvent( e );*/ }
-
+	void timerEvent( QTimerEvent *e ) override;
+#pragma endregion
+#pragma region( private_redesign )
   private:
 	//
 	// Redesign der privaten Menu-Anteile:
@@ -163,7 +188,6 @@ class QPieMenu : public QMenu
 	enum class PieMenuEreignis {
 		// Ereignisse: Mousezeigerposition vs. _actionRects
 		hover_Item_start,
-		hover_Item_switch,
 		hover_Item_end,
 		// Ereignisse: Mousezeigerposition vs. Mittelpunkt vs. kürzeste Distanz zu einem Element
 		distance_closing_in,
@@ -195,35 +219,64 @@ class QPieMenu : public QMenu
 	// Sobald irgend etwas die aktuellen "_actionRects" invalidiert, wird dies gesetzt!
 	bool			 _actionRectsDirty{ true };
 	// Das Selection Rect
-	PieSelectionRect _selRect, _srS, _srT;
+	PieSelectionRect _selRect, _srS, _srE;
 	bool			 _selRectDirty{ false };
 	// Windows-spezifisch: das transparente Fenster sollte keinen Schatten werfen !0 => geschafft!
 	HWND			 _dropShadowRemoved{ nullptr };
 	// Animationsvariablen:
 	int				 _timerId{ 0 }, _hoverId{ -1 };
-	bool			 _selRectAnimiert{ false }, _raAnimiert{ false }, _folgenAnimiert{ false };
+	bool			 _selRectAnimiert{ false }, _raAnimiert{ false };
 	QTime			 _selRectStart, _raStart;
 	int				 _raDauerMS;
-	QPoint			 _folgePunkt;
+	// Die Folge-Animation hab ich mir bisher nicht so recht überlegt.  Sie soll den Kreissektor
+	// des nächsten Items beleuchten.  Die Beleuchtungsstärke in Abhängigkeit von der Entfernung
+	// des Zeigers zum Element.  Das AUslösen funktioniert schonmal.  Auch ein Wechsel der IDs.
+	// Im Ein-, Aus- und Umschaltmoment sollte eine Zeitanimation ausgelöst werden.
+	// Die Farbe des Zielwertes sollte dynamisch angepasst werden, sofern die Animation läuft.
+	// Wir haben es hier genau genommen mit 2 verschiedenen Spielen zu tun:
+	// mouseMoveEvent:  - die aktuellen Folgedaten ausrechnen
+	//                  - entscheiden, ob ein Wechsel stattgefunden hat
+	//                    -> ja:    Zeitanimation starten
+	//                  - aktuelle Daten als Zieldaten bereitstellen
+	// paintEvent:  - prüfen, ob entweder eine _folgeId gesetzt ist (> -1), oder _folgenAnimiert
+	//                ist, wenn ja: den Sektor zeichnen.  Wenn animiert und t>=1, animationBeenden.
+	// ereignis:    - Zeitanimation_starten: letzte Daten als Quelle übernehmen bzw. bei (id==-1)
+	//                das Teil irgendwie aus der Mitte heraus animieren.
+	// Welche Daten brauche ich, um vglw. schnell das Teil zeichnen zu können?
+	//  Radien und Winkel sind am leichtesten zu interpolieren -> ergo bauen wir uns ein QRectF
+	//  aus Radien und Winkeln.  Dazu die Farbe, weil die soll ja auch Alpha-Animiert werden, und -
+	//  schwupps - sind wir wieder bei
+
+	bool			 _folgenAnimiert{ false };
+	int				 _folgeId{ -1 };
+	QPoint			 _folgePunkt, _fStart, _fEnde,
+		_fDauer; // Dauer der Folgeanimation sollte vom Abstand abhängig sein, ggf. live. die Anim
+				 // nachjustieren?
 
 	// -> Methoden:
 	// Style-Daten beschaffen (bei init und bei StyleChange)
-	void			 readStyleData();
+	void  readStyleData();
 	// Die Größen der Boxen berechnen -> Grunddaten
-	void			 calculatePieDataSizes();
+	void  calculatePieDataSizes();
 	// Die Ruhepositionen berechnen
-	void			 calculateStillData();
+	void  calculateStillData();
 	// Kleiner Helfer, den ich ggf. an mehreren Stellen brauche
-	qreal			 startR( int runde ) const;
+	qreal startR( int runde ) const;
 
 	// Statusverwaltung!
-	void			 ereignis( PieMenuEreignis e, quint64 parameter = 0ull );
-	void			 updateActionRects();
-	QRect			 getNextRect( int actionIndex );
-	QSize			 getActionSize( QAction *action );
+	void  ereignis( PieMenuEreignis e, qint64 parameter = 0ll, qint64 parameter2 = 0ll );
+	void  updateActionRects();
+	bool  hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID );
+	// Ein kluger Hit-Test rechnet einfach - wir nutzen diese Signed Distance Function:
+	auto  boxDistance( const auto &p, const auto &b ) const
+	{
+		return qMax( qMax( b.left() - p.x(), p.x() - b.right() ),
+					 qMax( b.top() - p.y(), p.y() - b.bottom() ) );
+	}
 	// -> Method hiding:
 	// Tearing our menus off is not allowed -> make setting it private
 	using QMenu::setTearOffEnabled;
+#pragma endregion
 };
 
 #endif // QPIEMENU_H

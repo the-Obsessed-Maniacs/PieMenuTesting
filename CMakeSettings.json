@@ -1,4 +1,4 @@
-﻿{
+{
 	"configurations": [
 		{
 			"name": "x64-Debug",
@@ -9,7 +9,14 @@
 			"installRoot": "${projectDir}\\out\\install\\${name}",
 			"cmakeCommandArgs": "",
 			"buildCommandArgs": "",
-			"ctestCommandArgs": ""
+			"ctestCommandArgs": "",
+			"variables": [
+				{
+					"name": "DBG_EVENTS",
+					"value": "False",
+					"type": "BOOL"
+				}
+			]
 		},
 		{
 			"name": "x64-Release",

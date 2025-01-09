@@ -1,14 +1,16 @@
 /**************************************************************************************************
  *  a small collection of helper functions
  * by St0fF / 2025
+ *
+ * ... and maybe some helpful definitions
  *************************************************************************************************/
 #pragma once
+
 #include <QColor>
 #include <QPointF>
 #include <QRectF>
 #include <QSizeF>
 #include <QtMath>
-#include <fasttrigo.h>
 
 QT_BEGIN_NAMESPACE
 template < typename T >
@@ -94,7 +96,7 @@ __forceinline QPointF qSinCos( qreal radians )
 }
 
 __forceinline QColor qLerpRGBA( const QColor &c0, const QColor &c1, qreal t )
-{
+{ // Only works as long as the internal QColor Design does not change
 	auto mask_to   = _mm_set_epi64x( 0x0f0f0f030f0f0f02, 0x0f0f0f010f0f0f00 );
 	auto mask_back = _mm_set_epi64x( 0x0f0f0f0f0f0f0f0f, 0x0f0f0f0f0c080400 );
 	auto _t		   = _mm_set_ps1( qMin( 1.f, qMax( 0.f, t ) ) ); // safeguard
@@ -102,7 +104,7 @@ __forceinline QColor qLerpRGBA( const QColor &c0, const QColor &c1, qreal t )
 	auto _c1	   = _mm_cvtepi32_ps( _mm_shuffle_epi8( _mm_set1_epi32( c1.rgba() ), mask_to ) );
 	// We've reached the future some time ago?
 	// https://fgiesen.wordpress.com/2012/08/15/linear-interpolation-past-present-and-future/
-	auto resf	   = _mm_fmadd_ps( _t, _c1, _mm_fnmsub_ps( _t, _c0, _c0 ) );
+	auto resf	   = _mm_fmadd_ps( _c1, _t, _mm_fnmadd_ps( _c0, _t, _c0 ) );
 	auto res_i8	   = _mm_shuffle_epi8( _mm_cvtps_epi32( resf ), mask_back );
 	return QColor::fromRgba( _mm_extract_epi32( res_i8, 0 ) );
 }
@@ -110,13 +112,21 @@ __forceinline QColor qLerpRGBA( Qt::GlobalColor c0, Qt::GlobalColor c1, qreal t 
 {
 	return qLerpRGBA( QColor( c0 ), QColor( c1 ), t );
 }
-__forceinline QPointF qLerp2D( QPointF p0, QPointF p1, qreal t )
+__forceinline QPointF qLerp2D( const QPointF &p0, const QPointF &p1, qreal t )
 {
-	auto _p0( _mm_setr_pd( p0.x(), p0.y() ) );
-	auto _p1( _mm_setr_pd( p1.x(), p1.y() ) );
 	auto _t( _mm_set1_pd( t ) );
-	auto res( _mm_fmadd_pd( _t, _p1, _mm_fnmsub_pd( _t, _p0, _p0 ) ) );
+	auto _p0( _mm_load_pd( reinterpret_cast< const qreal * >( &p0 ) ) );
+	auto _p1( _mm_load_pd( reinterpret_cast< const qreal * >( &p1 ) ) );
+	auto res( _mm_fmadd_pd( _p1, _t, _mm_fnmadd_pd( _p0, _t, _p0 ) ) );
 	return { res.m128d_f64[ 0 ], res.m128d_f64[ 1 ] };
+}
+__forceinline QRectF qLerpRect( const QRectF &src, const QRectF &tgt, qreal t )
+{ // This will only work as long as QRectF stays to be x1,y1,w,h of qreal internally.
+	__m256d a( *reinterpret_cast< const __m256d * >( &src ) );
+	__m256d b( *reinterpret_cast< const __m256d * >( &tgt ) );
+	__m256d _t( _mm256_set1_pd( t ) );
+	auto	r = _mm256_fmadd_pd( b, _t, _mm256_fnmadd_pd( a, _t, a ) );
+	return { r.m256d_f64[ 0 ], r.m256d_f64[ 1 ], r.m256d_f64[ 2 ], r.m256d_f64[ 3 ] };
 }
 __forceinline QSizeF qLerpSize( QSizeF s0, QSizeF s1, qreal t )
 {
@@ -138,6 +148,10 @@ __forceinline qreal superSmoothStep( qreal t, qreal a, int index, int count )
 	return superSmoothStep( t, a, a, index, count );
 }
 
+__forceinline qreal length( const QPointF &p )
+{
+	return qSqrt( QPointF::dotProduct( p, p ) );
+}
 
 // Der Intersektor ist eine Rect(F)-Liste, die beim Hinzufügen mit den "neuen Funktionen"
 // (add(),addAnyhow()...) auch einen Überlappungsstatus der hinzugefügten Rects speichert.
