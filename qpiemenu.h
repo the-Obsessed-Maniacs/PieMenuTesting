@@ -26,7 +26,7 @@ struct PieInitData
 {
 	QPoint _execPoint;
 	qreal  _start0{ qDegreesToRadians( 175 ) }, _max0{ qDegreesToRadians( 285 ) };
-	qreal  _selRectAlpha{ 0.5 }, _selRectDuration{ 0.5 };
+	qreal  _selRectAlpha{ 0.5 }, _selRectDuration{ 0.25 };
 	bool   _negativeDirection{ true }, _isContext{ true }, _isSubMenu{ false };
 
 	void   init( QPoint menuExecPoint, bool isContextMenu = true )
@@ -131,8 +131,6 @@ inline QDebug operator<<( QDebug dbg, const PieSelectionRect &r )
 // Helferklasse für Animationen für schöneren Zugriff auf den Distance-Arc.  Ich nutze den Fakt
 // aus, dass QRectF intern aus 4 qreal-Werten besteht - so lerpe ich ja zwischen 2 QRectFs hin-
 // und her ;) - und definiere einfach neue Zugriffsfunktionen.
-// In der Theorie sollte der Compiler dieser Klasse keinerlei Speicher zuweisen, weil sie ja
-// wirklich komplett auf constexprs beruht und lediglich einen Zugriffswrapper darstellt.
 class DistArc
 {
   public:
@@ -142,16 +140,20 @@ class DistArc
 	{}
 	DistArc()				   = delete;
 	DistArc( const DistArc & ) = delete;
-	qreal		   &a() { return ( *this )( 2 ); }
-	qreal		   &d() { return ( *this )( 3 ); }
-	qreal		   &r0() { return ( *this )( 0 ); }
-	qreal		   &r1() { return ( *this )( 1 ); }
-
-	constexpr qreal a0() const { return r.left() - r.top(); }
-	constexpr qreal a1() const { return r.left() + r.top(); }
+	qreal &a() { return ( *this )( 2 ); }
+	qreal &d() { return ( *this )( 3 ); }
+	qreal &r0() { return ( *this )( 0 ); }
+	qreal &r1() { return ( *this )( 1 ); }
+	qreal  a() const { return ( *this )( 2 ); }
+	qreal  d() const { return ( *this )( 3 ); }
+	qreal  r0() const { return ( *this )( 0 ); }
+	qreal  r1() const { return ( *this )( 1 ); }
+	qreal  a0() const { return a() - d(); }
+	qreal  a1() const { return a() + d(); }
 
   private:
 	qreal  &operator()( int id ) { return reinterpret_cast< qreal * >( &r )[ id ]; }
+	qreal  &operator()( int id ) const { return reinterpret_cast< qreal * >( &r )[ id ]; }
 	QRectF &r;
 };
 #pragma endregion
@@ -264,7 +266,7 @@ class QPieMenu : public QMenu
 	// mouseMoveEvent:  - die aktuellen Folgedaten ausrechnen
 	//                  - entscheiden, ob ein Wechsel stattgefunden hat
 	//                    -> ja:    Zeitanimation starten
-	//                  - aktuelle Daten als Zieldaten bereitstellen
+	//                  - aktuelle Daten als Zieldaten bereitstellen (hier: distanz zu _folgeId)
 	// paintEvent:  - prüfen, ob entweder eine _folgeId gesetzt ist (> -1), oder _folgenAnimiert
 	//                ist, wenn ja: den Sektor zeichnen.  Wenn animiert und t>=1, animationBeenden.
 	// ereignis:    - Zeitanimation_starten: letzte Daten als Quelle übernehmen bzw. bei (id==-1)
@@ -279,6 +281,20 @@ class QPieMenu : public QMenu
 	//  schwupps - sind wir wieder bei PieSelectionRect, nur dass wir es jetzt als
 	//      { { kleiner Radius, kleiner Winkel }, { großer Radius, großer Winkel } } + QColor
 	//  interpretieren werden.
+	//
+	//  Erste funktionierende Experimente haben gezeigt, dass das zwar auch eine schöne Animation
+	//  wird, aber irgendwie am Ziel vorbei.  Die Infrastruktur steht aber und das ist gut so!
+	//  Neue Idee: ... wir interpolieren wieder rects und wir brauchen einen spürbaren Einfluss der
+	//  Entfernung
+	//  Radius: d = qMax(0., dBox( pointer, item ) )
+	//          => bewegt sich als von [0. ...]
+	//          => Sichtbarkeitsgrenze wäre sinnvollerweise 2*r
+	//          => als Blendfunktion etwas, was sich langsam von der 1 weg bewegt und dann immer
+	//             schneller wird => sinus auf 90° skaliert ...
+	//  Alpha:  = sin( M_PI_2 * (1 - d/2r) )
+	//  -> id wechselt von -1: QRect(0,0,0,0),QColor(HLt)
+	//      => QRect(item),QColor(HL,a=irgend was Schlaues mit der Entfernung zum Item...)
+	//  -> id wechselt items: von _currentRect => QRect(item)
 
 	bool			 _folgenAnimiert{ false };
 	int				 _folgeId{ -1 }, _folgeDauer{ 300 };
