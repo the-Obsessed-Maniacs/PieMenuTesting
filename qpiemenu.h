@@ -47,7 +47,7 @@ struct alignas( 32 ) PieDataItem
 	constexpr	   operator qreal() const { return _angle; }
 	constexpr auto operator=( const QPoint &p ) { _geo.moveCenter( p ), _p = true; }
 	constexpr auto operator=( const QSize &sz ) { _geo.setSize( sz ), _s = true; }
-	constexpr auto operator=( const qreal angle ) { _angle, _a = angle, true; }
+	constexpr auto operator=( const qreal angle ) { _angle = angle, _a = true; }
 };
 QDebug operator<<( QDebug dbg, const PieDataItem &pd );
 
@@ -123,9 +123,37 @@ struct PieSelectionRect
 inline QDebug operator<<( QDebug dbg, const PieSelectionRect &r )
 {
 	QDebugStateSaver s( dbg );
+	dbg << Qt::fixed << qSetRealNumberPrecision( 2 );
 	dbg.nospace() << "PSR( " << r.first << ", " << r.second << " )";
 	return dbg;
 }
+
+// Helferklasse für Animationen für schöneren Zugriff auf den Distance-Arc.  Ich nutze den Fakt
+// aus, dass QRectF intern aus 4 qreal-Werten besteht - so lerpe ich ja zwischen 2 QRectFs hin-
+// und her ;) - und definiere einfach neue Zugriffsfunktionen.
+// In der Theorie sollte der Compiler dieser Klasse keinerlei Speicher zuweisen, weil sie ja
+// wirklich komplett auf constexprs beruht und lediglich einen Zugriffswrapper darstellt.
+class DistArc
+{
+  public:
+	// Immer direkt auf einer Referenz arbeiten.  Das Objekt soll nur lokale Lebensdauer haben!
+	explicit DistArc( QRectF &rect )
+		: r( rect )
+	{}
+	DistArc()				   = delete;
+	DistArc( const DistArc & ) = delete;
+	qreal		   &a() { return ( *this )( 2 ); }
+	qreal		   &d() { return ( *this )( 3 ); }
+	qreal		   &r0() { return ( *this )( 0 ); }
+	qreal		   &r1() { return ( *this )( 1 ); }
+
+	constexpr qreal a0() const { return r.left() - r.top(); }
+	constexpr qreal a1() const { return r.left() + r.top(); }
+
+  private:
+	qreal  &operator()( int id ) { return reinterpret_cast< qreal * >( &r )[ id ]; }
+	QRectF &r;
+};
 #pragma endregion
 
 class QPieMenu : public QMenu
@@ -199,6 +227,7 @@ class QPieMenu : public QMenu
 		open_sub_menu,
 		execute_action,
 		// ToDo: mehr davon ...
+		folgeanimation_beginnt, // intern zum sparen von code wird ereignis rekursiv aufgerufen
 		zeitanimation_beginnt,
 		zeitanimation_abgeschlossen, // damit zentral geprüft wird, ob der timer zu stoppen ist
 	};
@@ -221,8 +250,6 @@ class QPieMenu : public QMenu
 	// Das Selection Rect
 	PieSelectionRect _selRect, _srS, _srE;
 	bool			 _selRectDirty{ false };
-	// Windows-spezifisch: das transparente Fenster sollte keinen Schatten werfen !0 => geschafft!
-	HWND			 _dropShadowRemoved{ nullptr };
 	// Animationsvariablen:
 	int				 _timerId{ 0 }, _hoverId{ -1 };
 	bool			 _selRectAnimiert{ false }, _raAnimiert{ false };
@@ -242,16 +269,22 @@ class QPieMenu : public QMenu
 	//                ist, wenn ja: den Sektor zeichnen.  Wenn animiert und t>=1, animationBeenden.
 	// ereignis:    - Zeitanimation_starten: letzte Daten als Quelle übernehmen bzw. bei (id==-1)
 	//                das Teil irgendwie aus der Mitte heraus animieren.
+	//              - animate: wird durch den timer zur invalidisierung aufgerufen - hat NICHTS
+	//                im mouseMoveEvent verloren!!!  Stattdessen wird "update()" aufgerufen, wenn
+	//                ein Update nötig ist.
+	//
 	// Welche Daten brauche ich, um vglw. schnell das Teil zeichnen zu können?
 	//  Radien und Winkel sind am leichtesten zu interpolieren -> ergo bauen wir uns ein QRectF
 	//  aus Radien und Winkeln.  Dazu die Farbe, weil die soll ja auch Alpha-Animiert werden, und -
-	//  schwupps - sind wir wieder bei
+	//  schwupps - sind wir wieder bei PieSelectionRect, nur dass wir es jetzt als
+	//      { { kleiner Radius, kleiner Winkel }, { großer Radius, großer Winkel } } + QColor
+	//  interpretieren werden.
 
 	bool			 _folgenAnimiert{ false };
-	int				 _folgeId{ -1 };
-	QPoint			 _folgePunkt, _fStart, _fEnde,
-		_fDauer; // Dauer der Folgeanimation sollte vom Abstand abhängig sein, ggf. live. die Anim
-				 // nachjustieren?
+	int				 _folgeId{ -1 }, _folgeDauer{ 300 };
+	PieSelectionRect _folge{ { 0, 0, 0, 0 }, Qt::GlobalColor::transparent }, _folgeStart,
+		_folgeStop;
+	QTime _folgeBeginn;
 
 	// -> Methoden:
 	// Style-Daten beschaffen (bei init und bei StyleChange)
@@ -265,7 +298,7 @@ class QPieMenu : public QMenu
 
 	// Statusverwaltung!
 	void  ereignis( PieMenuEreignis e, qint64 parameter = 0ll, qint64 parameter2 = 0ll );
-	void  updateActionRects();
+	void  updateCurrentVisuals();
 	bool  hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID );
 	// Ein kluger Hit-Test rechnet einfach - wir nutzen diese Signed Distance Function:
 	auto  boxDistance( const auto &p, const auto &b ) const
@@ -273,10 +306,12 @@ class QPieMenu : public QMenu
 		return qMax( qMax( b.left() - p.x(), p.x() - b.right() ),
 					 qMax( b.top() - p.y(), p.y() - b.bottom() ) );
 	}
+
+	// -> Variablen - Windows-spezifisch:
+	//      das transparente Fenster sollte keinen Schatten werfen !0 => geschafft!
+	HWND _dropShadowRemoved{ nullptr };
 	// -> Method hiding:
 	// Tearing our menus off is not allowed -> make setting it private
 	using QMenu::setTearOffEnabled;
 #pragma endregion
 };
-
-#endif // QPIEMENU_H

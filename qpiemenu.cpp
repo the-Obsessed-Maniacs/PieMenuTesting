@@ -107,47 +107,49 @@ void QPieMenu::actionEvent( QActionEvent *event )
 
 void QPieMenu::paintEvent( QPaintEvent *e )
 {
-	updateActionRects();
+	updateCurrentVisuals();
 	QStylePainter p( this );
 	p.translate( -_actionPieData._boundingRect.topLeft() );
 	QStyleOptionMenuItem opt;
 	auto				 ac = actions().count();
 	// Folgen: Sektorhighlighting
-	if ( _folgeId != -1 )
+	if ( _folgeId != -1 || _folgenAnimiert )
 	{
-		// wir brauchen (wieder, weil haben wir ja schonmal ausgerechnet):
-		// -> Entfernung zum Mittelpunkt
-		auto dm	 = length( _folgePunkt );
-		// -> Entfernung zum nächsten Element
-		auto de	 = boxDistance( _folgePunkt, _actionRects[ _folgeId ] );
-		// -> wenn wir den bzw. die Winkel und radien nicht ausrechnen bräuchten?
-		auto om	 = _actionPieData[ _folgeId ]._angle;
-		auto r	 = _actionPieData._radius;
-		auto r0	 = qMin( qMax( 10., r / 8 ), 0.8 * r );
-		auto dir = _initData._negativeDirection ? -1. : 1.;
-		auto w1 =
-			_folgeId > 0 ? _actionPieData[ _folgeId - 1 ]._angle : om - dir * ( 0.25 * M_PI_4 );
-		auto		 w2	 = _folgeId + 1 < ac ? _actionPieData[ _folgeId + 1 ]._angle
-											 : om + dir * ( 0.25 * M_PI_4 );
-		// die jeweiligen Winkeldifferenzen:
-		auto		 dw1 = dir * ( om - w1 );
-		auto		 dw2 = dir * ( w2 - om );
-		QPainterPath path;
-		// Ich fange mit dem kleinen Arc an:
-		path.arcTo( { { -r0, -r0 }, QPointF{ r0, r0 } }, dw1, dw2 );
-		// Dann gehe ich bis zum Mittelpunkt des Nachbarn
-		path.lineTo( r * qSinCos( dw2 ) );
-		// Mach den großen Bogen
-		path.arcTo( { { -r, -r }, QPointF{ r, r } }, dw2, dw2 - dw1 );
-		// Und schliesse den Pfad ab -> letzte Linie bis zum Startpunkt
-		path.closeSubpath();
-		QConicalGradient gradient( {}, qRadiansToDegrees( om ) );
-		gradient.setColorAt( 0., _styleData.HL );
-		gradient.setColorAt( qAbs( dw1 * M_2_PI ), _styleData.HLtransparent );
-		gradient.setColorAt( qAbs( dw2 * M_2_PI ), _styleData.HLtransparent );
-		gradient.setColorAt( 1., _styleData.HL );
-		p.strokePath( path, p.pen() );
-		p.fillPath( path, gradient );
+		if ( _folgenAnimiert )
+		{
+			auto ct = _folgeBeginn.msecsTo( QTime::currentTime() );
+			auto t	= qreal( ct ) / _folgeDauer;
+			// Wenn 1 erreicht ist, können wir die Animation abschalten
+			if ( t >= 1. )
+				_folge = _folgeStop, ereignis( PieMenuEreignis::zeitanimation_abgeschlossen,
+											   reinterpret_cast< qint64 >( &_folgenAnimiert ) );
+			else _folge( t, _folgeStart, _folgeStop );
+			// qDebug() << "animated:" << ct << "of" << _folgeDauer << "ms elapsed -> t=" << t
+			//		 << _folgeId << _folge;
+		}
+		// Das war's schon zum Ein- und Ausblenden.  Nun zeichnen wir den aktuellen Zustand.
+		DistArc da( _folge.first );
+		// 4 Eckpunkte bekommen wir recht einfach hin ...
+		auto	sc0 = qSinCos( da.a0() ), sc1 = qSinCos( da.a1() ), sc = qSinCos( da.a() );
+		QPen	pen( p.pen() );
+		p.setPen( _folge.second );
+		p.drawLine( {}, da.r1() * sc );
+		p.drawChord( -da.r1(), -da.r1(), 2 * da.r1(), 2 * da.r1(), da.a0(), da.a0() + da.d() );
+
+		// QPainterPath path;
+		// path.lineTo( da.r1() * sc ); // sollte zum Mittelpunkt des Elementes gehen
+		// path.lineTo( da.r1() * sc0 );
+		// path.lineTo( da.r0() * sc0 );
+		// path.lineTo( da.r0() * sc1 );
+		// path.lineTo( da.r1() * sc1 );
+		// path.lineTo( da.r1() * sc );
+		//  QConicalGradient gradient( {}, qRadiansToDegrees( om ) );
+		//  gradient.setColorAt( 0., _styleData.HL );
+		//  gradient.setColorAt( qAbs( dw1 * M_2_PI ), _styleData.HLtransparent );
+		//  gradient.setColorAt( qAbs( dw2 * M_2_PI ), _styleData.HLtransparent );
+		//  gradient.setColorAt( 1., _styleData.HL );
+		// p.strokePath( path, _folge.second );
+		// p.fillPath( path, gradient );
 	}
 	// SelectionRect
 	if ( _selRect.first.isValid() )
@@ -161,25 +163,25 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 		p.drawRoundedRect( _selRect.first, r, r );
 	}
 	// Zum Schluss die Elemente drüberbügeln
-	// for ( int i( 0 ); i < ac; ++i )
-	//{
-	//	initStyleOption( &opt, actions().at( i ) );
-	//	opt.state.setFlag( QStyle::State_Selected, ( i == _hoverId ) && !_selRectAnimiert );
-	//	opt.rect = _actionRects[ i ].marginsAdded( _styleData.menuMargins );
-	//	p.setOpacity( _actionRenderData[ i ].x() );
-	//	// ToDo: Benutze den Skalierfaktor "_actionRenderData[ i ].y()" korrekt.
-	//	//  z.B.:
-	//	opt.font.setPointSizeF( opt.font.pointSizeF() * _actionRenderData[ i ].y() );
-	//	p.drawPrimitive( QStyle::PE_PanelMenu, opt );
-	//	opt.rect = opt.rect.marginsRemoved( _styleData.menuMargins );
-	//	p.drawControl( QStyle::CE_MenuItem, opt );
-	//}
+	for ( int i( 0 ); i < ac; ++i )
+	{
+		initStyleOption( &opt, actions().at( i ) );
+		opt.state.setFlag( QStyle::State_Selected, ( i == _hoverId ) && !_selRectAnimiert );
+		opt.rect = _actionRects[ i ].marginsAdded( _styleData.menuMargins );
+		p.setOpacity( _actionRenderData[ i ].x() );
+		// ToDo: Benutze den Skalierfaktor "_actionRenderData[ i ].y()" korrekt.
+		//  z.B.:
+		opt.font.setPointSizeF( opt.font.pointSizeF() * _actionRenderData[ i ].y() );
+		p.drawPrimitive( QStyle::PE_PanelMenu, opt );
+		opt.rect = opt.rect.marginsRemoved( _styleData.menuMargins );
+		p.drawControl( QStyle::CE_MenuItem, opt );
+	}
 }
 
 void QPieMenu::showEvent( QShowEvent *e )
 {
 	// An dieser Stelle sollten wir die Position zentrieren ...
-	updateActionRects();
+	updateCurrentVisuals();
 	setGeometry( geometry().translated( _actionPieData._boundingRect.topLeft() ) );
 	qApp->setEffectEnabled( Qt::UI_FadeMenu, false );
 	ereignis( PieMenuEreignis::getsShown );
@@ -190,14 +192,15 @@ void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 {
 	if ( !isVisible() ) return;
 
-	// Finde die nächstgelegene Aktion und den Abstand zum Mittelpunkt
+	// Finde die nächstgelegene Aktion und den Abstand zum Mittelpunkt durch den Hit-Test
 	auto  p = e->position().toPoint() + _actionPieData._boundingRect.topLeft();
 	qreal d, dm = qSqrt( QPoint::dotProduct( p, p ) ), r = _actionPieData._radius,
-			 minmax = qMin( qMax( 10., r / 8 ), 0.8 * r );
+			 minmax = qMin( qMax( 10., r / 8 ), ( r < 0.1 ? 1 : 0.8 * r ) );
 	int	 id( -1 );
 	bool hit		= hitTest( p, d, id );
-	// Weiter weg vom Zentrum als das Minimum, aber näher am Element als Radius?
-	bool close		= ( dm > minmax ) && ( d <= r );
+	// Weiter weg vom Zentrum als das Minimum, aber näher am Element als Radius? -> closeBy
+	bool closeBy	= ( dm > minmax ) && ( d <= r ) && ( id != -1 );
+	// Falls Ereignisse ausgelöst werden -> schonmal die Position kodieren
 	auto posEncoded = ( qint64( p.x() ) << 32 ) | p.y();
 
 	// Ok, jetzt wissen wir Bescheid - erstellen wir die entsprechenden Ereignisse
@@ -205,10 +208,46 @@ void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 	if ( hit ) ereignis( PieMenuEreignis::hover_Item_start, id );
 	else ereignis( PieMenuEreignis::hover_Item_end, posEncoded );
 	// -> der Close-Test hat ergeben, ob der Cursor in der Nähe eines Items ist
-	if ( close ) ereignis( PieMenuEreignis::distance_closing_in, posEncoded, id );
-	else ereignis( PieMenuEreignis::distance_leaving, posEncoded );
-	// Und wenn wir noch immer der gleichen ID folgen, wird animiert...
-	if ( _folgeId == id && close ) ereignis( PieMenuEreignis::animate, posEncoded, id );
+	if ( closeBy )
+	{
+		// Ereignis auslösen: sollte die Animation eingeschaltet werden, werden die letzten
+		// Daten des Sektors genutzt -> die stehen seit der letzten Animation in _folge.
+		if ( _folgeId != id )
+		{
+			qDebug() << "ME_FOLGEN_INIT: values before\n\t" << _folgeStart << "\n\t" << _folge
+					 << "\n\t" << _folgeStop;
+			DistArc a( _folgeStop.first );
+			// Und nun die Daten bereitstellen
+			auto	ac = _actionPieData.count();
+			a.a()	   = _actionPieData[ id ]._angle;
+			// haben wir eine oder 2 Winkeldifferenzen? -> baue daraus einen Faktor
+			auto dwf   = 0.5 / ( 1. + ( id > 0 && id + 1 < ac ) );
+			// Das sollte dann die halbe mittlere Winkeldifferenz werden:
+			a.d()	   = ( ( id > 0 ? qAbs( _actionPieData[ id - 1 ]._angle - a.a() ) : 0 )
+					   + ( id + 1 < ac ? qAbs( _actionPieData[ id + 1 ]._angle - a.a() ) : 0 ) )
+					* dwf;
+			a.r0()			  = minmax;
+			a.r1()			  = r;
+			_folgeStop.second = _styleData.HL;
+			qDebug() << "ME_FOLGEN_INIT: stop calculated=" << _folgeStop;
+			// Falls vor der Animation komplett abgeschaltet war, sollte der Mittenwinkel konstant
+			// bleiben ... dann geht der Bogen auf ;)
+			if ( _folgeId == -1 && !_folgenAnimiert )
+			{
+				DistArc s( _folge.first );
+				s.a() = a.a(), s.d() = 0.;
+				s.r0() = a.r0(), s.r1() = a.r1();
+			}
+			qDebug() << "ME_FOLGEN_INIT: before ereignis - currentValue =" << _folge;
+			ereignis( PieMenuEreignis::distance_closing_in, id );
+			qDebug() << "ME_FOLGEN_INIT: finished:\n\t" << _folgeStart << "\n\t" << _folge << "\n\t"
+					 << _folgeStop;
+		}
+		// Ansonsten ist nur die Farbe zu aktualisieren - die soll ja von der Nähe abhängig sein.
+		// der Alpha-Wert der Farbe sollte von der Entfernung zum Item abhängig sein ...
+		_folgeStop.second.setAlphaF( smoothStep( d, r, r * 0.5 ) );
+		if ( !_folgenAnimiert ) update();
+	} else ereignis( PieMenuEreignis::distance_leaving );
 	e->accept();
 }
 
@@ -444,7 +483,7 @@ qreal QPieMenu::startR( int runde ) const
 void QPieMenu::ereignis( PieMenuEreignis e, qint64 p, qint64 p2 )
 {
 	// output helper macro
-#define a_sr "start:" << _srS << "ziel:" << _srE << "startzeit:" << t
+#define a_sz( S, Z ) "start:" << S << "ziel:" << Z << "startzeit:" << t
 
 	auto t			= QTime::currentTime();
 	auto posDecoded = QPoint{ p >> 32, int( p & 0xffffffffll ) };
@@ -456,9 +495,8 @@ void QPieMenu::ereignis( PieMenuEreignis e, qint64 p, qint64 p2 )
 			// Läuft die SelRect-Animation?
 			if ( _selRectAnimiert ) _selRectDirty = true;
 			if ( _raAnimiert ) _actionRectsDirty = true;
-			if ( _folgenAnimiert )
-				_actionRectsDirty = true, _folgePunkt = posDecoded, _folgeId = p2;
-			if ( _actionRectsDirty || _selRectDirty ) update();
+			if ( _folgenAnimiert || _actionRectsDirty || _selRectDirty ) update();
+			else qWarning() << "PieMenuEreignis::animate, but nothing left to animate!";
 			break;
 #pragma endregion
 #pragma region( Zeitanimationen )
@@ -488,7 +526,8 @@ void QPieMenu::ereignis( PieMenuEreignis e, qint64 p, qint64 p2 )
 				_selRectStart = t;
 				ereignis( PieMenuEreignis::zeitanimation_beginnt,
 						  reinterpret_cast< quint64 >( &_selRectAnimiert ) );
-				qDebug() << "=> Zeitanimation Selection Rect #" << _hoverId << a_sr;
+				// qDebug() << "=> Zeitanimation Selection Rect #" << _hoverId << a_sz( _srS, _srE
+				// );
 			}
 			break;
 		// Beginne, das SelRect wieder zu verstecken (p: Zielpunkt 2x32 Bit in 64 Bit gepackt)
@@ -502,28 +541,33 @@ void QPieMenu::ereignis( PieMenuEreignis e, qint64 p, qint64 p2 )
 				_selRectStart = t;
 				ereignis( PieMenuEreignis::zeitanimation_beginnt,
 						  reinterpret_cast< quint64 >( &_selRectAnimiert ) );
-				qDebug() << "=> Zeitanimation Selection Rect Hide" << a_sr;
+				// qDebug() << "=> Zeitanimation Selection Rect Hide" << a_sz( _srS, _srE );
 			}
 			break;
 #pragma endregion
 #pragma region( EchtzeitAnimation )
 		// Starte die Echtzeitanimation
 		case PieMenuEreignis::distance_closing_in:
-			if ( !_folgenAnimiert || p2 != _folgeId )
+			if ( !_folgenAnimiert || p != _folgeId )
 			{
-				_folgenAnimiert = true;
-				_folgePunkt		= posDecoded;
-				_folgeId		= p2;
-				qWarning() << "FOLGE" << _folgeId;
+				_folgeDauer = ( _folgeId == -1 ? 500 : 250 );
+				ereignis( PieMenuEreignis::folgeanimation_beginnt,
+						  reinterpret_cast< quint64 >( &_folgenAnimiert ), p );
+				qWarning() << "FOLGE" << _folgeId << a_sz( _folgeStart, _folgeStop )
+						   << "Dauer[ms]:" << _folgeDauer;
 			}
 			break;
 		// Beende die Echtzeitanimation
 		case PieMenuEreignis::distance_leaving:
-			if ( _folgenAnimiert )
+			if ( _folgeId != -1 )
 			{
-				_folgenAnimiert = false;
-				_folgeId		= -1;
-				qWarning() << "STOPP";
+				_folgeDauer = 1000;
+				ereignis( PieMenuEreignis::folgeanimation_beginnt,
+						  reinterpret_cast< quint64 >( &_folgenAnimiert ), -1 );
+				DistArc da( _folgeStop.first );
+				da.d() = da.r0() = da.r1() = 0.;
+				_folgeStop.second		   = _styleData.HLtransparent;
+				qWarning() << "STOPP:" << a_sz( _folgeStart, _folgeStop );
 			}
 			break;
 #pragma endregion
@@ -538,22 +582,42 @@ void QPieMenu::ereignis( PieMenuEreignis e, qint64 p, qint64 p2 )
 #pragma region( Zeitanimation_Helfer )
 		// Bei Zeitanimationen ist der Parameter ein Zeiger auf den bool, der durch das
 		// Ereignis geändert wird.
+		case PieMenuEreignis::folgeanimation_beginnt:
+			_folgeId	 = p2;
+			_folgeBeginn = t;
+			_folgeStart	 = _folge; // letzte Darstellung als Start!!!
+			[[fallthru]];
 		case PieMenuEreignis::zeitanimation_beginnt:
-			if ( p ) *reinterpret_cast< bool * >( p ) = true;
-			if ( _timerId == 0 ) _timerId = startTimer( 10 );
+			if ( p ) // Wir machen hier nix ohne Bescheid zu geben ...
+			{
+				auto &b = *reinterpret_cast< bool * >( p );
+				if ( !b )
+				{
+					b = true;
+					if ( _timerId == 0 ) _timerId = startTimer( 10 );
+				}
+			}
 			break;
 		case PieMenuEreignis::zeitanimation_abgeschlossen:
-			if ( p ) *reinterpret_cast< bool * >( p ) = false;
-			if ( !( _selRectAnimiert || _raAnimiert ) && _timerId )
-				_timerId = ( killTimer( _timerId ), 0 );
-			qDebug() << "=> Zeitanimation abgeschlossen. Übrige Timer (0=keine):" << _timerId;
+			if ( p ) // Wir machen hier nix ohne Bescheid zu geben ...
+			{
+				auto &b = *reinterpret_cast< bool * >( p );
+				if ( b )
+				{
+					b		  = false;
+					bool kill = !( _selRectAnimiert || _raAnimiert || _folgenAnimiert ) && _timerId;
+					if ( kill ) _timerId = ( killTimer( _timerId ), 0 );
+					// qDebug() << "=> Zeitanimation abgeschlossen,"
+					//		 << ( kill ? "Timer gestoppt." : "weitere Animationen laufen noch..." );
+				}
+			}
 			break;
 #pragma endregion
 	}
-#undef a_sr
+#undef a_sz
 }
 
-void QPieMenu::updateActionRects()
+void QPieMenu::updateCurrentVisuals()
 {
 	if ( !_actionRectsDirty && !_selRectDirty ) return;
 	// Die Action Rects werden auf unterschiedliche Art und Weise dirty.
@@ -579,8 +643,8 @@ void QPieMenu::updateActionRects()
 			// ausrechnen.  Dort können wir einen Gradienten passend bauen und einen Kreissektor
 			// damit zeichnen ...
 
-			// Der eigentliche Spass geht dort los, wo wir wirklich ein Rect Vergrößern und den Rest
-			// rechts und links davon ausweichen lassen.
+			// Der eigentliche Spass geht dort los, wo wir wirklich ein Rect Vergrößern und den
+			// Rest rechts und links davon ausweichen lassen.
 		}
 		_actionRectsDirty = false;
 	}
@@ -683,7 +747,7 @@ QDebug operator<<( QDebug dbg, const PieDataItem &pd )
 QDebug operator<<( QDebug dbg, const PieData &pd )
 {
 	QDebugStateSaver s( dbg );
-	dbg << "PieData( #items =" << pd.count() << "r =" << pd._radius << ", avg.Size =" << pd._avgSz
+	dbg << "PieData( #items =" << pd.count() << ", r =" << pd._radius << ", avg.Size =" << pd._avgSz
 		<< ", bounds =" << pd._boundingRect << ", Intersections:" << pd._intersections.count()
 		<< ")";
 	return dbg;

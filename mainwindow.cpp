@@ -214,7 +214,7 @@ void MainWindow::menuAbout2show()
 		// clear items
 		clearItems();
 		// create items (in reverse order, so the top item is on top)
-		auto dbg = qDebug() << "menu about to show:" << m->title() << "Items:";
+		// auto dbg = qDebug() << "menu about to show:" << m->title() << "Items:";
 		for ( auto a : std::ranges::reverse_view( m->actions() ) )
 		{
 			auto pb = new QPushButton( a->icon(), a->text() );
@@ -222,8 +222,8 @@ void MainWindow::menuAbout2show()
 			pb->setVisible( !a->isSeparator() );
 		}
 		for ( auto i : items )
-			dbg << i->widget()->property( "text" ).toString() << i->boundingRect().size(),
-				_boxes.append( i->boundingRect() );
+			// dbg << i->widget()->property( "text" ).toString() << i->boundingRect().size(),
+			_boxes.append( i->boundingRect() );
 		// first point where/when calculation would make sense
 		reinterpret_cast< BerechnungsModell * >( cb_PlacementPolicies->model() )
 			->calculateItems( cb_PlacementPolicies->currentIndex(), _boxes );
