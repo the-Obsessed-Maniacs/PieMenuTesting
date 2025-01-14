@@ -145,7 +145,7 @@ __forceinline qreal superSmoothStep( qreal t, qreal start_max, qreal end_min, in
 }
 __forceinline qreal superSmoothStep( qreal t, qreal a, int index, int count )
 {
-	return superSmoothStep( t, a, a, index, count );
+	return superSmoothStep( t, a, 1. - a, index, count );
 }
 
 __forceinline qreal length( const QPointF &p )
@@ -163,8 +163,10 @@ struct Intersector : public QList< R >
 	using R_type = R;
 	using P_type = P;
 
-	R	 _lastIntersection;
+	R	 _lastIntersection, _br;
 	bool _hasIntersection{ false };
+	// overwrite QList::clear()
+	void clear() { _br = {}, resetIntersection(), QList< R >::clear(); }
 	void resetIntersection() { _lastIntersection = {}, _hasIntersection = false; }
 	bool checkIntersections()
 	{
@@ -192,25 +194,20 @@ struct Intersector : public QList< R >
 	virtual bool add( R_type r )
 	{
 		for ( auto i : *this )
-			if ( r.intersects( i ) )
-			{
-				_lastIntersection = r.intersected( i );
-				return false;
-			};
-		_lastIntersection = {};
+			if ( ( _lastIntersection = r.intersected( i ) ).isValid() )
+				return !( _hasIntersection = true );
 		QList< R >::append( r );
+		_br |= r;
 		return true;
 	}
 	virtual void addAnyhow( R_type r )
 	{
-		for ( auto i : *this )
-			if ( r.intersects( i ) )
-			{
-				_lastIntersection = r.intersected( i );
-				_hasIntersection  = true;
-				break; // finish the loop prematurely
-			};
+		int i( QList< R >::count() );
+		while ( !_hasIntersection && ( --i >= 0 ) )
+			_hasIntersection =
+				( _lastIntersection = r.intersected( QList< R >::at( i ) ) ).isValid();
 		QList< R >::append( r );
+		_br |= r;
 	}
 	// changeItem() returns true, if the item at index can be changed without intersections.
 	virtual bool changeItem( int index, R_type newValue )
@@ -219,11 +216,13 @@ struct Intersector : public QList< R >
 		{
 			// assign and recheck bounds
 			QList< R >::operator[]( index ) = newValue;
-			if ( !_hasIntersection ) // only check for a intersections if there aren't any, already.
-				for ( int i( 0 ); i < QList< R >::count(); ++i )
-					if ( i != index && newValue.intersects( QList< R >::at( i ) ) )
-						_lastIntersection = newValue.intersected( QList< R >::at( i ) ),
-						_hasIntersection  = true;
+			int i( QList< R >::count() );
+			while ( !_hasIntersection && ( --i >= 0 ) )
+				if ( i != index )
+					_hasIntersection =
+						( _lastIntersection = newValue.intersected( QList< R >::at( i ) ) )
+							.isValid();
+			_br |= newValue;
 		}
 		return !_hasIntersection;
 	}
@@ -235,6 +234,7 @@ struct Intersector : public QList< R >
 	virtual void resetToFirst()
 	{
 		QList< R >::resize( 1 );
+		_br = QList< R >::first();
 		resetIntersection();
 	}
 };
@@ -243,10 +243,19 @@ struct Intersector : public QList< R >
 class BestDelta
 {
   public:
+	BestDelta() = default;
+	BestDelta( bool negAngles )
+		: dir( negAngles ? -1 : 1 )
+	{}
 	__forceinline void init( qreal direction, qreal reference_angle )
 	{
 		bad = -( good = std::numeric_limits< qreal >::max() );
 		dir = direction;
+		w0	= reference_angle;
+	}
+	__forceinline void init( qreal reference_angle )
+	{
+		bad = -( good = std::numeric_limits< qreal >::max() );
 		w0	= reference_angle;
 	}
 	constexpr auto	reference() const { return w0; }
@@ -265,6 +274,7 @@ class BestDelta
 	__forceinline void addRad( qreal a ) { addAngle< M_PI >( a ); }
 
   private:
-	qreal good, bad, dir, w0;
+	qreal good{ std::numeric_limits< qreal >::max() }, bad{ -std::numeric_limits< qreal >::max() },
+		dir{ -1 }, w0{ M_PI_2 };
 };
 QT_END_NAMESPACE

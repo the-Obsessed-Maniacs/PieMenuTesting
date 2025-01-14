@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 project(PieMenuTesting VERSION 0.1 LANGUAGES CXX)
 
 option( DBG_EVENTS "Enable event-logging in QPieMenu" off )
+option( DBG_ANIM_NUMERIC "Enable numeric animation debugging in QPieMenu" off )
 #include( EnableIntrinsics.cmake )
 #add_compile_definitions( SIMDE_ARCH_X86_SVML )
 
@@ -13,12 +14,13 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets LinguistTools)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets LinguistTools)
+set( QT_COMP Widgets Scxml )
+find_package( QT NAMES Qt6 Qt5 REQUIRED COMPONENTS ${QT_COMP} LinguistTools )
+find_package( Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS ${QT_COMP} LinguistTools )
 
-set(TS_FILES PieMenuTesting_de_DE.ts)
+set( TS_FILES PieMenuTesting_de_DE.ts )
 
-set(PROJECT_SOURCES
+set( PROJECT_SOURCES
         main.cpp
         mainwindow.cpp
         mainwindow.h
@@ -33,11 +35,16 @@ set(PROJECT_SOURCES
 		qpiemenu.cpp
 		FastTrigo/FastTrigo.h
 		FastTrigo/FastTrigo.cpp
+		Superpolator.h
+		Superpolator.cpp
         ${TS_FILES}
 )
 add_definitions( -DNOMINMAX )
 if ( ${DBG_EVENTS} )
 	add_definitions( -DDEBUG_EVENTS )
+endif()
+if ( ${DBG_ANIM_NUMERIC} )
+	add_definitions( -DDEBUG_ANIM_NUMERIC )
 endif()
 include_directories( FastTrigo )
 message( NOTICE "QT Version: ${QT_VERSION}" )
@@ -47,6 +54,8 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
     )
+	qt_add_statecharts( PieMenuTesting StateEngine.scxml )
+
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET PieMenuTesting APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
 #                 ${CMAKE_CURRENT_SOURCE_DIR}/android)
@@ -69,7 +78,8 @@ else()
     qt5_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})
 endif()
 
-target_link_libraries(PieMenuTesting PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+list( TRANSFORM QT_COMP PREPEND Qt${QT_VERSION_MAJOR}:: OUTPUT_VARIABLE QT_LIBS )
+target_link_libraries( PieMenuTesting PRIVATE ${QT_LIBS} )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an

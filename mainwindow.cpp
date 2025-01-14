@@ -364,6 +364,7 @@ void MainWindow::contextMenuEvent( QContextMenuEvent *event )
 	menu.addAction( undoAct );
 	menu.addAction( redoAct );
 	connect( &menu, &QPieMenu::aboutToShow, this, &MainWindow::menuAbout2show );
+	qDebug() << "MENU connected -> executing...";
 	menu.exec( event->globalPos() );
 }
 
@@ -530,7 +531,8 @@ void MainWindow::createMenus()
 	fileMenu->addAction( exitAct );
 	connect( fileMenu, &QMenu::aboutToShow, this, &MainWindow::menuAbout2show );
 
-	editMenu = menuBar()->addMenu( tr( "&Edit" ) );
+	editMenu = new QPieMenu( tr( "&Edit" ) );
+	menuBar()->addMenu( editMenu );
 	editMenu->addAction( undoAct );
 	editMenu->addAction( redoAct );
 	editMenu->addSeparator();
