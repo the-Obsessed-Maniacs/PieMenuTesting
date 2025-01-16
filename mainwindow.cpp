@@ -355,17 +355,28 @@ void MainWindow::aboutQt()
 void MainWindow::contextMenuEvent( QContextMenuEvent *event )
 {
 	QPieMenu menu( this );
-	menu.addAction( cutAct );
-	menu.addAction( copyAct );
-	menu.addAction( pasteAct );
-	menu.addSeparator();
-	menu.addMenu( formatMenu );
-	menu.addSection( tr( "Undo/Redo" ) );
-	menu.addAction( undoAct );
-	menu.addAction( redoAct );
+	auto	 aa = [ & ]( QAction *a )
+	{
+		auto t = tr( "Schwebe über '%1'." ).arg( a->text() );
+		if ( a->isSeparator() ) connect( a, &QAction::hovered, [ = ]() { infoLabel->clear(); } );
+		else
+		{
+			if ( a->menu() == nullptr ) menu.addAction( a );
+			connect( a, &QAction::hovered, [ = ]() { infoLabel->setText( t ); } );
+		}
+	};
+	aa( cutAct );
+	aa( copyAct );
+	aa( pasteAct );
+	aa( menu.addSeparator() );
+	aa( menu.addMenu( formatMenu ) );
+	aa( menu.addSection( tr( "Undo/Redo" ) ) );
+	aa( undoAct );
+	aa( redoAct );
 	connect( &menu, &QPieMenu::aboutToShow, this, &MainWindow::menuAbout2show );
 	qDebug() << "MENU connected -> executing...";
-	menu.exec( event->globalPos() );
+	auto a = menu.exec( event->globalPos() );
+	qDebug() << "MENU finished..." << a;
 }
 
 //! [4]

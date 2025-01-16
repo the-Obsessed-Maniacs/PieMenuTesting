@@ -23,8 +23,6 @@ QPieMenu::QPieMenu( const QString &title, QWidget *parent )
 	setAttribute( Qt::WA_TranslucentBackground );
 	// initialize style-dependent data
 	readStyleData();
-
-	qDebug() << "QPieMenu" << title << "created" << this;
 }
 
 QPieMenu::~QPieMenu()
@@ -35,6 +33,11 @@ QPieMenu::~QPieMenu()
 QSize QPieMenu::sizeHint() const
 {
 	return _boundingRect.size();
+}
+
+void QPieMenu::setVisible( bool vis )
+{
+	if ( vis != isVisible() ) initVisible( vis );
 }
 
 QAction *QPieMenu::actionAt( const QPoint &pt ) const
@@ -121,6 +124,15 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 	p.translate( -_boundingRect.topLeft() );
 	QStyleOptionMenuItem opt;
 	auto				 ac = actions().count();
+
+	QPainterPath		 pp;
+	QRectF				 ab = { { -_data.r(), -_data.r() }, QPointF{ _data.r(), _data.r() } };
+	pp.arcTo( ab, -90 + qRadiansToDegrees( _data.first().a ),
+			  qRadiansToDegrees( qAbs( _data.last().a - _data.first().a )
+								 * ( _initData._negativeDirection ? -1. : 1. ) ) );
+	pp.closeSubpath();
+	p.fillPath( pp, _styleData.HLtransparent );
+
 	// Folgen: Sektorhighlighting
 	if ( _folge.first.isValid() && _folge.second.alpha() > 0 )
 	{
@@ -190,7 +202,8 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 	for ( int i( 0 ); i < ac; ++i )
 	{
 		initStyleOption( &opt, actions().at( i ) );
-		opt.state.setFlag( QStyle::State_Selected, ( i == _hoverId ) && !_selRectStart.isValid() );
+		opt.state.setFlag( QStyle::State_Selected,
+						   ( i == _hoverId ) && !_selRectAnimiert.isActive() );
 		opt.rect = _actionRects[ i ].marginsAdded( _styleData.menuMargins );
 		p.setOpacity( _actionRenderData[ i ].x() );
 		// ToDo: Benutze den Skalierfaktor "_actionRenderData[ i ].y()" korrekt.
@@ -206,14 +219,15 @@ void QPieMenu::showEvent( QShowEvent *e )
 {
 	// An dieser Stelle sollten wir die Position zentrieren ...
 	updateCurrentVisuals();
-	setGeometry( geometry().translated( _boundingRect.topLeft() ) );
+	qDebug() << "QPieMenu" << title() << "::showEvent - geo:" << geometry()
+			 << ", radius:" << _data.r() << ", globalCenter:" << geometry().center();
 	qApp->setEffectEnabled( Qt::UI_FadeMenu, false );
-	ereignis( PieMenuEreignis::show_up );
 	QMenu::showEvent( e );
 }
 
 void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 {
+	if ( _kbdOvr.isActive() ) return e->ignore();
 	// Nur, wenn es sich wirklich um eine Bewegung handelt, stelle ich die aktuellen Daten zur
 	// Verfügung und werte sie aus.
 	auto p = e->position().toPoint() + _boundingRect.topLeft();
@@ -227,39 +241,41 @@ void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 		int	  id( -1 );
 		// -> ich möchte einen kleinen, nicht-reaktiven Kreis rund um den Mittelpunkt bewahren
 		// (minmax) -> (out)
-		qreal r		  = _data.r();
-		bool  out	  = _lastDm > qMax( 0.5 * qMin( _avgSz.width(), _avgSz.height() ), 10. );
-		bool  hit	  = hitTest( p, _lastDi, id );
-		bool  closeBy = !hit && out && ( _lastDi <= 2 * r ) && ( id != -1 );
+		qreal r = _data.r();
+		bool  out =
+			_lastDm >= qMax( 0.5 * qMin( _avgSz.width(), _avgSz.height() ), 2. * _styleData.sp );
+		bool hit	 = hitTest( p, _lastDi, id );
+		bool closeBy = !hit && out && ( _lastDi <= 2 * r ) && ( id != -1 );
 		// Alle Informationen sind beschafft und Schlussfolgerungen stehen bereit -> State-Engine
 		// bearbeiten und Ereignisse produzieren:
+		//_stateEngine->submitEvent(
+		//	"mouseMove",
+		//	QVariantMap{ { "dM", { _lastDm } }, { "dI", { _lastDi } }, { "id", { id } } } );
 		switch ( _state )
 		{
 			case PieMenuStatus::still:
 				// Der Priorität nach prüfen: hover, closeby
-				if ( hit ) ereignis( PieMenuEreignis::hover_start, id );
-				else if ( closeBy ) ereignis( PieMenuEreignis::closeBy_start, id );
-				// Wenn das Menü "still" ist, gibt es keine weiteren Möglichkeiten.
+				if ( hit ) initHover( id );
+				else if ( closeBy ) initCloseBy( id );
 				break;
 			case PieMenuStatus::closeby:
-				if ( hit ) ereignis( PieMenuEreignis::hover_start, id );
-				else if ( !closeBy ) ereignis( PieMenuEreignis::closeBy_leave );
-				else if ( _folgeId != id ) ereignis( PieMenuEreignis::closeBy_switch, id );
+				if ( hit ) initCloseBy(), initHover( id );
+				else if ( !closeBy ) initCloseBy(), makeState( PieMenuStatus::still );
+				else if ( _folgeId != id ) initCloseBy( id );
 				break;
 			case PieMenuStatus::hover:
 				if ( !hit ) // Kein Hover mehr? Kann dennoch zu 2 anderen Stati wechseln...
 				{
-					if ( closeBy ) ereignis( PieMenuEreignis::closeBy_start, id );
-					else ereignis( PieMenuEreignis::hover_leave );
-				} else if ( id != _hoverId )
-					ereignis( PieMenuEreignis::hover_switch, id ),
-						qDebug() << "hover_switch_current to id = " << id;
+					initHover();
+					if ( closeBy ) initCloseBy( id );
+					else makeState( PieMenuStatus::still );
+				} else if ( id != _hoverId ) initHover( id );
 				break;
 			// In allen anderen Stati ist hier (vorerst) nichts zu tun.
 			case PieMenuStatus::item_active: break;
 			default: break;
 		}
-		e->accept();
+
 		// Soweit - mehr sollte das mouseMoveEvent nicht tun müssen.
 
 		// ALTERCODE: (ein paar nette Berechnungen drin)
@@ -298,17 +314,13 @@ void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 		//	else _folge.second.setAlphaF( alpha ), update();
 		//} else ereignis( PieMenuEreignis::distance_leaving );
 	}
-}
-
-void QPieMenu::timerEvent( QTimerEvent *e )
-{
-	if ( e->timerId() == _timerId ) ereignis( PieMenuEreignis::animate ), e->accept();
-	else if ( e->timerId() == _alertId ) ereignis( PieMenuEreignis::time_out ), e->accept();
+	if ( _state == PieMenuStatus::hover || _lastDm < _avgSz.height() ) e->accept();
+	else QWidget::mouseMoveEvent( e );
 }
 
 void QPieMenu::mousePressEvent( QMouseEvent *e )
 {
-	/*QMenu::mousePressEvent( e ); */
+	if ( _kbdOvr.isActive() ) return e->ignore();
 	qDebug() << "QPieMenu::mousePressEvent(" << e << ")";
 	auto p		= e->pos() + _boundingRect.topLeft();
 	auto launch = e->buttons().testAnyFlags( Qt::RightButton | Qt::LeftButton );
@@ -317,37 +329,131 @@ void QPieMenu::mousePressEvent( QMouseEvent *e )
 		case PieMenuStatus::hover: // HitTest, wenn sich was bewegt hat ...
 			if ( p == _lastPos || boxDistance( p, _actionRects[ _hoverId ] ) <= 0. )
 			{ // Ich probiere mal einen Sel Rect Color Fade
-				_srS   = _selRect;
 				auto c = _srE.second.convertTo( QColor::Hsv );
-				_srE.second.setHsv( ( c.hsvHue() + 180 ) % 360, c.hsvSaturation(), c.value(), 208 );
-				ereignis( PieMenuEreignis::zeitanimation_beginnt,
-						  reinterpret_cast< quint64 >( &_selRectAnimiert ),
-						  reinterpret_cast< quint64 >( &_selRectStart ) );
-			} else qDebug() << "hit test failed!";
+				c.setHsv( ( c.hsvHue() + 180 ) % 360, c.hsvSaturation(), c.value(), 208 );
+				startSelRectColorFade( c );
+				return e->accept();
+			} else {
+				e->ignore();
+				qDebug() << "hit test failed!";
+			}
 			break;
-		case PieMenuStatus::hidden: break;
-		case PieMenuStatus::still: break;
-		case PieMenuStatus::closeby: break;
-		case PieMenuStatus::item_active: break;
-		default: e->ignore(); break;
+		default: // Jeder Mouse-Press ausserhalb von Elementen ist dazu da, das Menu wieder zu
+				 // schließen.  Bin mir gerade nicht sicher, ob ich den Release besser abwarten
+				 // sollte...
+			setActiveAction( nullptr );
+			initVisible( false );
+			e->accept();
+			break;
 	}
+	QWidget::mousePressEvent( e );
 }
 
 void QPieMenu::mouseReleaseEvent( QMouseEvent *e )
 {
-	/*QMenu::mouseReleaseEvent( e ); */
-	auto p		= e->localPos().toPoint();
+	if ( _kbdOvr.isActive() ) return e->ignore();
+	qDebug() << "QPieMenu::mouseReleaseEvent(" << e << ")";
+	auto p		= e->pos() + _boundingRect.topLeft();
 	auto launch = e->buttons().testAnyFlags( Qt::RightButton | Qt::LeftButton );
-	switch ( _state )
+	if ( _state == PieMenuStatus::hover && // HitTest, wenn sich was bewegt hat ...
+		 ( p == _lastPos || boxDistance( p, _actionRects[ _hoverId ] ) <= 0. ) )
 	{
-		case PieMenuStatus::hover: // HitTest, wenn sich was bewegt hat ...
-			if ( p == _lastPos || boxDistance( p, _actionRects[ _hoverId ] ) <= 0. )
+		auto a = actions().at( _hoverId );
+		if ( auto am = qobject_cast< QPieMenu * >( a->menu() ) )
+		{
+			makeState( PieMenuStatus::item_active );
+		} else {
+			setActiveAction( a );
+			a->activate( QAction::Trigger );
+			emit QMenu::triggered( a );
+			initVisible( false );
+		}
+	} else if ( _state != PieMenuStatus::hidden ) return QWidget::mouseReleaseEvent( e );
+	e->accept();
+}
+
+void QPieMenu::keyPressEvent( QKeyEvent *e )
+{
+	enum { none, prev, next, use, out } dir;
+	switch ( e->key() )
+	{
+		case Qt::Key_ApplicationLeft: [[fallthru]];
+		case Qt::Key_Left: dir = layoutDirection() == Qt::LeftToRight ? prev : next; break;
+		case Qt::Key_ApplicationRight: [[fallthru]];
+		case Qt::Key_Right: dir = layoutDirection() != Qt::LeftToRight ? prev : next; break;
+		case Qt::Key_Close: [[fallthru]];
+		case Qt::Key_Exit: [[fallthru]];
+		case Qt::Key_Cancel: [[fallthru]];
+		case Qt::Key_No: [[fallthru]];
+		case Qt::Key_Escape: dir = out; break;
+		case Qt::Key_Execute: [[fallthru]];
+		case Qt::Key_Yes: [[fallthru]];
+		case Qt::Key_Space: [[fallthru]];
+		case Qt::Key_Return: [[fallthru]];
+		case Qt::Key_Enter: dir = use; break;
+		case Qt::Key_Up: dir = prev; break;
+		case Qt::Key_Down: dir = next; break;
+		default: dir = none; break;
+	}
+	switch ( dir )
+	{
+		case out:
+			setActiveAction( nullptr );
+			initVisible( false );
+			break;
+		case use:
+			if ( _hoverId != -1 )
 			{
-				actions().at( _hoverId )->activate( QAction::ActionEvent::Trigger );
+				auto a = actions().at( _hoverId );
+				setActiveAction( a );
+				if ( a->menu() )
+				{
+				} else {
+					a->activate( QAction::Trigger );
+					emit triggered( a );
+					initVisible( false );
+				}
 			}
 			break;
-		default: e->ignore(); break;
+		case prev: [[fallthru]];
+		case next:
+			focusNextPrevChild( dir == next );
+			_hoverId = actionIndex( activeAction() );
+			_kbdOvr.start( _initData._subMenuDelayMS * 2, this );
+			makeState( PieMenuStatus::item_active );
+			break;
+		case none: return QMenu::keyPressEvent( e );
 	}
+	e->accept();
+}
+
+void QPieMenu::timerEvent( QTimerEvent *e )
+{
+	auto tid = e->timerId();
+	if ( tid == _alertTimer.timerId() )
+	{
+		_alertTimer.stop();
+		if ( _state == PieMenuStatus::hover && _hoverId == _alertId )
+			makeState( PieMenuStatus::item_active );
+	} else if ( tid == _kbdOvr.timerId() ) {
+		_kbdOvr.stop();
+		initHover( _hoverId );
+		qDebug() << "END_KEYBOARD_OVERRIDE";
+	} else {
+		if ( tid == _selRectAnimiert.timerId() ) _selRectDirty = true, update();
+		else if ( tid == _rectsAnimiert.timerId() )
+		{
+			if ( _data.update( _actionRects, _actionRenderData ) )
+			{
+				_rectsAnimiert.stop();
+				// Verschobenes Hiding ...
+				if ( _state == PieMenuStatus::hidden ) initVisible( false );
+			}
+			_actionRectsDirty = false;
+			update();
+		} else return QMenu::timerEvent( e );
+	}
+	e->accept();
 }
 
 void QPieMenu::readStyleData()
@@ -368,7 +474,7 @@ void QPieMenu::readStyleData()
 			  qMax( 3, style->pixelMetric( QStyle::PM_ToolBarItemSpacing, &mopt, this ) ) );
 	_styleData.HL = _styleData.HLtransparent = palette().color( QPalette::Highlight );
 	_styleData.HL.setAlphaF( _initData._selRectAlpha );
-	_styleData.HLtransparent.setAlphaF( 0.0 );
+	_styleData.HLtransparent.setAlphaF( 0.05 );
 	_selRect.second	  = _hoverId == -1 ? _styleData.HLtransparent : _styleData.HL;
 	// Es wurden auch Größen und Margins neu gelesen -> die rects sind vmtl. dirty.
 	_actionRectsDirty = true;
@@ -376,9 +482,9 @@ void QPieMenu::readStyleData()
 
 void QPieMenu::calculatePieDataSizes()
 {
-	// Alle Größen sind voneinander abhängig, wenn wir einen konsistenten Stil (wie ihn Menüs nunmal
-	// haben sollten) mit zumindest gleichem Tabstopp verwenden wollen.  Da wir alle anfassen
-	// müssen, können wir auch gleich immer alle berechnen.
+	// Alle Größen sind voneinander abhängig, wenn wir einen konsistenten Stil (wie ihn Menüs
+	// nunmal haben sollten) mit zumindest gleichem Tabstopp verwenden wollen.  Da wir alle
+	// anfassen müssen, können wir auch gleich immer alle berechnen.
 	QStyleOptionMenuItem opt;
 	QAction				*action;
 	QSize				 sz, allSz;
@@ -477,17 +583,17 @@ void QPieMenu::calculateStillData()
 	// Hier kommt erst einmal der optimierte Algorithmus hinein: die "stillData" berechnen wir
 	// einmalig nach ActionEvent, sie sind die Ruhepositionen für unser Menü.  Diese sind auch
 	// wichtig für das Bounding Rect: nach Abschluss der Berechnungen sollten wir ein paar kluge
-	// Margins auf das boundingRect draufrechnen, damit wir ohne unsere Geometrie ändern zu müssen,
-	// auch Skalierungseffekte erstellen können.
+	// Margins auf das boundingRect draufrechnen, damit wir ohne unsere Geometrie ändern zu
+	// müssen, auch Skalierungseffekte erstellen können.
 	//
-	// Zuerst brauchen wir eine gute Schätzung für den startRadius.  Wir haben gelernt, dass hier
-	// sowohl Breite, als auch Höhe eingehen.
-	// Weiterhin erscheint mir gerade relativ klar, dass bis zu einem
+	// Zuerst brauchen wir eine gute Schätzung für den startRadius.  Wir haben gelernt, dass
+	// hier sowohl Breite, als auch Höhe eingehen. Weiterhin erscheint mir gerade relativ klar,
+	// dass bis zu einem
 	//      Radius < length( fromSize( average_item_size ) )
-	// der Durchschnittsgröße weniger Items im Kreis platziert werden können, weil im Endeffekt nur
-	// eine Seite des Kreises zum Anordnen von Elementen zur Verfügung steht.  Wären auf der anderen
-	// Seite, also ab 180° Gesamtüberdeckung auch Elemente, würde es bei diesen kleinen Radien
-	// zwangsläufig zu Überdeckungen kommen.
+	// der Durchschnittsgröße weniger Items im Kreis platziert werden können, weil im Endeffekt
+	// nur eine Seite des Kreises zum Anordnen von Elementen zur Verfügung steht.  Wären auf der
+	// anderen Seite, also ab 180° Gesamtüberdeckung auch Elemente, würde es bei diesen kleinen
+	// Radien zwangsläufig zu Überdeckungen kommen.
 	QPointF						 sc, off;
 	QPoint						 c;
 	QRect						 box;
@@ -566,186 +672,182 @@ void QPieMenu::calculateStillData()
 	auto ya						 = _avgSz.height(); // >> 1;
 	_boundingRect.adjust( -xa, -ya, xa, ya );
 	updateGeometry();
+	// Informiere die State Engine über die Datenänderungen
+	//_stateEngine->submitEvent(
+	//	"initEvent", QVariantMap{ { "r0", r },
+	//							  { "minDm", qMax( 0.5 * qMin( _avgSz.width(), _avgSz.height()
+	//),
+	//											   2. * _styleData.sp ) } } );
 }
 
 qreal QPieMenu::startR( int runde ) const
 {
 	auto asz = _avgSz;
 	auto avp = fromSize( asz );
-	// Radius, der spätestens in der 3. Runde verwendet werden sollte (ggf. noch ein "+ Spacing"?)
+	// Radius, der spätestens in der 3. Runde verwendet werden sollte (ggf. noch ein "+
+	// Spacing"?)
 	auto r3	 = qSqrt( QPointF::dotProduct( avp, avp ) );
 	// Bisher eine gute Schätzung:
-	//      ( AspectRatio * (item_height+spacing) * itemCount ) / floor( winkelÜberdeckung / 90° )
-	auto r0	 = ( avp.y() / avp.x() ) * ( asz.height() + _styleData.sp ) * actions().count()
-			  / qFloor( _initData._max0 / M_PI_2 );
-	// Also: 0. - 3. Runde bewegen wir uns linear zwischen r0 und r3
-	if ( runde < 4 ) return r0 + runde * ( r3 - r0 ) / 3;
+	//      ( AspectRatio * (item_height+spacing) * itemCount ) / floor( winkelÜberdeckung / 90°
+	//      )
+	auto r0	 = qMax( _initData._minR, ( avp.y() / avp.x() ) * ( asz.height() + _styleData.sp )
+										  * actions().count() / qFloor( _initData._max0 / M_PI_2 ) );
+	// Also: 0. - 3. Runde bewegen sich der Radius linear zwischen r0 und r3, falls _minR nicht zu
+	// gross ist
+	if ( r0 < r3 && runde < 4 ) return r0 + runde * ( r3 - r0 ) / 3;
 	// Danach addieren wir für jede Runde eine halbe Item-Höhe drauf.
-	return r3 + ( runde - 3 ) * ( asz.height() >> 1 );
-}
-
-void QPieMenu::ereignis( PieMenuEreignis e, qint64 p, qint64 p2 )
-{
-	auto t	= QTime::currentTime();
-	auto os = _state;
-	switch ( e )
-	{
-#pragma region( Animieren_und_Timer )
-		case PieMenuEreignis::animate:
-			// Animationen werden ohne Beschränkungen des Statuses durchgeführt:
-			if ( _selRectAnimiert ) _selRectDirty = true;
-			if ( _rectsAnimiert ) _actionRectsDirty = true;
-			if ( _actionRectsDirty || _selRectDirty ) update();
-			break;
-		case PieMenuEreignis::time_out:
-			// Zeitauslöser:
-			killTimer( _alertId ), _alertId = 0;
-			switch ( _state )
-			{
-				case PieMenuStatus::hover: ereignis( PieMenuEreignis::hover_activate ); break;
-				default: break;
-			}
-			break;
-		// Parameter: p:= bool* auf "*Animiert", p2:= ptr auf QTime (Startzeit), darf null sein
-		// (dieser State-Change steckt am Ende in _timerId != 0)
-		case PieMenuEreignis::zeitanimation_beginnt:
-			if ( p ) // Wir machen hier nix ohne Bescheid zu geben ...
-			{
-				auto &b = *reinterpret_cast< bool * >( p );
-				if ( !b )
-				{
-					b = true;
-					if ( _timerId == 0 ) _timerId = startTimer( 10 );
-					if ( p2 ) *reinterpret_cast< QTime * >( p2 ) = t;
-				}
-			}
-			break;
-		case PieMenuEreignis::zeitanimation_abgeschlossen:
-			if ( p ) // Wir machen hier nix ohne Bescheid zu geben ...
-			{
-				auto &b = *reinterpret_cast< bool * >( p );
-				if ( b )
-				{
-					b		  = false;
-					bool kill = !( _selRectAnimiert || _rectsAnimiert ) && _timerId;
-					if ( kill )
-						_timerId =
-							( killTimer( _timerId ), ( qDebug() << "timer stopped:" << t ), 0 );
-				}
-			}
-			break;
-		case PieMenuEreignis::timer_startet:
-			_alertId = startTimer( p, Qt::TimerType::VeryCoarseTimer );
-			if ( p2 ) *reinterpret_cast< QTime * >( p2 ) = t;
-			break;
-		case PieMenuEreignis::timer_abbruch: killTimer( _alertId ), _alertId = 0; break;
-#pragma endregion
-#pragma region( Show_Hide )
-		// Keine Prüfungen nötig bei show_up und hide_away.
-		case PieMenuEreignis::show_up:
-			// Schalte die Animation zum Anzeigen ein
-			_data.initShowUp( _initData._animBaseDur * 4 );
-			ereignis( PieMenuEreignis::zeitanimation_beginnt,
-					  reinterpret_cast< qint64 >( &_rectsAnimiert ) );
-			_state = PieMenuStatus::still; // Not calling makeState on Purpose!
-			break;
-		case PieMenuEreignis::hide_away: makeState( PieMenuStatus::hidden ); break;
-#pragma endregion
-#pragma region( Hover )
-		// Beginne, das Selection Rect zu animieren (p: ID der Aktion)
-		case PieMenuEreignis::hover_start:
-		case PieMenuEreignis::hover_switch:
-			_hoverId = p;
-			makeState( PieMenuStatus::hover );
-			break;
-		// Beginne, das SelRect wieder zu verstecken
-		case PieMenuEreignis::hover_leave:
-			_hoverId = -1;
-			makeState( PieMenuStatus::still );
-			break;
-		case PieMenuEreignis::hover_activate:
-			if ( _hoverId >= 0 ) _activeId = _hoverId, makeState( PieMenuStatus::item_active );
-			break;
-#pragma endregion
-#pragma region( EchtzeitAnimation )
-		// Starte die Echtzeitanimation
-		case PieMenuEreignis::closeBy_start:
-			_folgeId	 = p;
-			_folgeBeginn = t;
-			makeState( PieMenuStatus::closeby );
-			break;
-			// if ( !_rectsAnimiert || p != _folgeId )
-			//{
-			//	_folgeId	  = p;
-			//	_folgeDauerMS = _initData._selRectDuration * ( _folgeId == -1 ? 2000 : 1000 );
-			//	ereignis( PieMenuEreignis::folgeanimation_beginnt,
-			//			  reinterpret_cast< quint64 >( &_rectsAnimiert ),
-			//			  reinterpret_cast< quint64 >( &_folgeBeginn ) );
-			//	// qWarning() << "FOLGE" << _folgeId << "Dauer[ms]:" << _folgeDauer
-			//	//		   << a_sz( _folgeStart, _folgeStop );
-			// }
-			// break;
-		// Beende die Echtzeitanimation
-		case PieMenuEreignis::closeBy_leave:
-			makeState( PieMenuStatus::still );
-			break;
-			// if ( _folgeId != -1 )
-			//{
-			//	_folgeId		  = -1;
-			//	_folgeStop.first  = {};
-			//	_folgeStop.second = _styleData.HLtransparent;
-			//	_folgeDauerMS	  = _initData._selRectDuration * 4000;
-			//	ereignis( PieMenuEreignis::folgeanimation_beginnt,
-			//			  reinterpret_cast< quint64 >( &_rectsAnimiert ),
-			//			  reinterpret_cast< quint64 >( &_folgeBeginn ) );
-			//	// qWarning() << "STOPP:" << a_sz( _folgeStart, _folgeStop );
-			// }
-			// break;
-#pragma endregion
-#pragma region( Auswahl )
-#pragma endregion
-#pragma region( neue_Region )
-#pragma endregion
-		default: break;
-	}
-	if ( os != _state ) qDebug() << "QPieMenu: STATE changed to" << _state;
+	return qMax( r0, r3 ) + ( runde - 3 ) * ( asz.height() >> 1 );
 }
 
 void QPieMenu::makeState( PieMenuStatus s )
 {
-	if ( _state != s )
+	if ( _state != s || s == PieMenuStatus::hidden )
 	{
 		switch ( s )
 		{
-			case PieMenuStatus::hidden:
-				_data.initHideAway( _initData._animBaseDur * 4, qMax( _hoverId, _folgeId ) );
-				ereignis( PieMenuEreignis::zeitanimation_beginnt,
-						  reinterpret_cast< qint64 >( &_rectsAnimiert ) );
-				break;
-			case PieMenuStatus::still: // STILL-Zustand herstellen - sollte immer akzeptabel sein!
+			case PieMenuStatus::hidden: break;
+			case PieMenuStatus::still: // STILL-Zustand herstellen - sollte immer akzeptabel
+									   // sein!
 				// Alle Elemente fahren auf ihren Ursprungszustand zurück.
-				_data.initStill( _initData._animBaseDur >> 1 ), _rectsAnimiert = true;
-				// Das Selection Rect verschwindet.
-				initHover();
+				_folgeId = _hoverId = -1;
+				_data.initStill( _initData._animBaseDur >> 1 );
+				_rectsAnimiert.start( 10, this );
+				startSelRect( { 0, 0, -1, -1 } );
 				break;
-			case PieMenuStatus::closeby:
-				// Wenn ich im closeby-Status ankomme, muss das Selection Rect erstmal versteckt
-				// werden
-				initHover();
+			case PieMenuStatus::closeby: break;
+			case PieMenuStatus::hover: break; // using initHover(id)
+			case PieMenuStatus::item_active:
+				// Die _hoverId sollte vorab gesetzt werden.  Hier wird nur der Status durch das
+				// Selection Rect übernommen. Wenn der Timer für den Keyboard Override aktiv ist,
+				// war es eine Keyboard-Aktivierung.  Wenn nicht, ist der Submenu-Timer abgelaufen.
+				{
+					auto r = _actionRects[ _hoverId ];
+					auto p = r.center();
+					r.setSize( 1.25 * r.size() );
+					r.moveCenter( p );
+					startSelRect( r );
+					if ( !_kbdOvr.isActive() ) showChild( _hoverId );
+				}
 				break;
-			case PieMenuStatus::hover:
-				initHover();
-				// Und QMenu / die QActions brauchen noch
-				actions().at( _hoverId )->hover();
-				break;
-			case PieMenuStatus::item_active: // still to find out..
-				// setActiveAction( actions().at( _activeId ) );
-				break;
-			default:
-				qDebug() << "State-Change-Handler NYI, state changed from" << _state << "to" << s;
-				break;
+			default: break;
 		}
-		_state = s;
+		setState( s );
+	}
+}
+
+void QPieMenu::showChild( int index )
+{
+	auto r	= _actionRects[ index ];
+	auto a	= actions().at( index );
+	auto pm = ( r.center() - _boundingRect.topLeft() + pos() /**/ );
+	qDebug() << "show as child: p=" << r.center() << ", p_mapped=" << pm << ", myPos=" << pos()
+			 << ", myGeometry=" << geometry() << ", myBR=" << _boundingRect;
+	if ( auto cpm = qobject_cast< QPieMenu * >( a->menu() ) )
+	{
+		qDebug() << "-> child QPieMenu showing ...";
+		cpm->showAsChild( this, pm, qMax( r.width(), r.height() ) * 1.25,
+						  _data[ index ].a + M_2_SQRTPI, _data[ index ].a - M_2_SQRTPI );
+	} else if ( auto m = a->menu() ) {
+		qDebug() << "-> popup QMenu ...";
+		m->popup( pm );
+	}
+	qDebug() << "show as child: showing done, setting action active" << a;
+	setActiveAction( a );
+	qDebug() << "show as child: FINISHED!";
+}
+
+void QPieMenu::initVisible( bool show )
+{
+	if ( show )
+	{
+		// In dem Moment, wo das Menu sichtbar gesetzt wird, sollte es eine Position erhalten haben.
+		// => wenn die internen Funktionen genutzt wurden, sollte die berechnete Position in
+		// _initData stehen. Anonsten nutzen wir die Verschiebung, wie vorher im ShowEvent ...
+		auto fromPar = !_initData._execPoint.isNull();
+		if ( !fromPar ) setGeometry( geometry().translated( _boundingRect.topLeft() ) );
+		else
+			move( _initData._execPoint ),
+				setGeometry( geometry().translated( _boundingRect.topLeft() ) );
+		QMenu::setVisible( true );
+		// Schalte die Animation zum Anzeigen ein
+		_data.initShowUp( _initData._animBaseDur * 4,
+						  fromPar ? _initData._start0 + _initData.dir( 0.5 ) * _initData._max0
+								  : 0.f );
+		_rectsAnimiert.start( 10, this );
+		_selRect	  = { {}, _styleData.HLtransparent };
+		_selRectDirty = false;
+		setState( PieMenuStatus::still ); // Not calling makeState on Purpose!
+	} else {
+		// 2. Aufruf, nach der Anim ...
+		if ( _state == PieMenuStatus::hidden )
+		{
+			QMenu::setVisible( false );
+			if ( _causedMenu ) _causedMenu->childHidden( this );
+		} else { // 1. Aufruf -> Anim starten, Zustand merken
+			_data.initHideAway( _initData._animBaseDur * 4, _laId > -1		? _laId
+															: _hoverId > -1 ? _hoverId
+																			: _folgeId );
+			_rectsAnimiert.start( 10, this );
+			auto c = _styleData.HLtransparent;
+			if ( activeAction() )
+				// Element wurde ausgewählt und aktiviert -> das selRect hat eine andere
+				// Farbe bekommen!
+				c = _srE.second;
+			startSelRect( { 0, 0, -1, -1 } );
+			_srE.second = c, _srE.second.setAlpha( 0 );
+			// alle IDs zurücksetzen, ausser _activeId!
+			_folgeId = _hoverId = -1;
+			setState( PieMenuStatus::hidden );
+		}
+	}
+}
+
+void QPieMenu::initCloseBy( int newFID )
+{
+	// Ziel des Folgemodus: das nächstgelegene Item etwas vergrößern
+	if ( newFID == -1 )
+		;
+	else
+	{
+		_folgeBeginn = QTime::currentTime();
+		setState( PieMenuStatus::closeby );
+	}
+	_folgeId = newFID;
+}
+
+void QPieMenu::initHover( int newHID )
+{
+	auto sub = _state == PieMenuStatus::item_active;
+	if ( newHID == _hoverId && !sub ) return;
+	if ( newHID == -1 )
+	{
+		std::swap( _laId, _hoverId );
+		_hoverId = newHID;
+		// Das Selection-Rect "weganimieren"
+		if ( !_kbdOvr.isActive() ) startSelRect( { 0, 0, -1, -1 } );
+		// Wenn Hover verlassen wird, muss der hover-Timer gestoppt werden.
+		_alertTimer.stop();
+		setActiveAction( nullptr );
+	} else { // Was braucht die Selection Rect-Animation? -> Position und Farbe
+		auto r = _actionRects[ _hoverId = newHID ];
+		auto p = r.center();
+		r.setSize( 1.25 * r.size() );
+		r.moveCenter( p );
+		startSelRect( r );
+		if ( !sub ) // nicht schon aktiv?
+		{
+			// Und QMenu / die QActions brauchen noch
+			if ( auto a = actions().at( _hoverId ) )
+				if ( a->menu() )
+				{
+					emit QMenu::hovered( a );
+					a->activate( QAction::Hover );
+					_alertId = _hoverId, _alertTimer.start( _initData._subMenuDelayMS, this );
+				} else setActiveAction( a );
+			else _alertTimer.stop();
+		}
+		// Wird Hover betreten, muss auch der Status gesetzt werden
+		setState( PieMenuStatus::hover );
 	}
 }
 
@@ -754,24 +856,20 @@ void QPieMenu::updateCurrentVisuals()
 	if ( !_actionRectsDirty && !_selRectDirty ) return;
 
 	if ( _actionRectsDirty )
-	{
-		if ( _data.update( _actionRects, _actionRenderData ) )
-			ereignis( PieMenuEreignis::zeitanimation_abgeschlossen,
-					  reinterpret_cast< qint64 >( &_rectsAnimiert ) );
-		_actionRectsDirty = false;
-	}
-
+		_data.update( _actionRects, _actionRenderData ), _actionRectsDirty = false;
 	if ( _selRectDirty )
 	{
-		if ( _selRectAnimiert )
+		if ( _selRectAnimiert.isActive() )
 		{
 			auto x =
 				smoothStep( static_cast< qreal >( _selRectStart.msecsTo( QTime::currentTime() ) )
 							/ _initData._animBaseDur );
 			_selRect( x, _srS, _srE );
 			if ( x >= 1. )
-				ereignis( PieMenuEreignis::zeitanimation_abgeschlossen,
-						  reinterpret_cast< quint64 >( &_selRectAnimiert ) );
+			{
+				_selRectAnimiert.stop();
+				qDebug() << "SRST0PP" << _selRect;
+			}
 		}
 		_selRectDirty = false;
 	}
@@ -792,30 +890,44 @@ bool QPieMenu::hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID 
 	return md <= 0; // Hit bei Distance <= 0 ...
 }
 
-void QPieMenu::initHover()
+void QPieMenu::startSelRect( QRect tr )
 {
-	// - nimm die letzte Position des SelRects as Startwert
-	_srS = _selRect;
-	if ( _hoverId == -1 )
+	if ( !tr.isNull() ) // Ziel wird hier vorbereitet
 	{
-		// Das Selection-Rect "weganimieren"
-		_srE = { { _lastPos.toPointF(), _lastPos.toPointF() }, _styleData.HLtransparent };
-		// Wenn Hover verlassen wird, muss der hover-Timer gestoppt werden.
-		if ( _alertId != 0 ) ereignis( PieMenuEreignis::timer_abbruch );
-	} else // Was braucht die Selection Rect-Animation? -> Position und Farbe
-	{
-		auto r = _actionRects[ _hoverId ];
-		auto p = r.center();
-		r.setSize( 1.25 * r.size() );
-		r.moveCenter( p );
-		_srE = { r, _styleData.HL };
-		if ( actions().at( _hoverId )->menu() )
-			ereignis( PieMenuEreignis::timer_startet, _initData._subMenuDelayMS,
-					  reinterpret_cast< qint64 >( &_hoverStart ) );
+		if ( tr.isValid() ) _srE = { tr.toRectF(), _styleData.HL };
+		else _srE = { {}, _styleData.HLtransparent }, qDebug() << "SRSTART" << _srS << _srE;
 	}
-	ereignis( PieMenuEreignis::zeitanimation_beginnt,
-			  reinterpret_cast< quint64 >( &_selRectAnimiert ),
-			  reinterpret_cast< quint64 >( &_selRectStart ) );
+	// - nimm die letzte Position des SelRects as Startwert
+	_srS		  = _selRect;
+	_selRectStart = QTime::currentTime();
+	_selRectAnimiert.start( 10, this );
+}
+
+void QPieMenu::startSelRectColorFade( const QColor &target_color )
+{
+	_srE.second = target_color;
+	startSelRect();
+}
+
+void QPieMenu::showAsChild( QPieMenu *source, QPoint pos, qreal minRadius, qreal startAngle,
+							qreal endAngle )
+{
+	// Ein Versuch, das automatische oder (via Tasta) manuelle öffnen eines Submenüs, was auch ein
+	// QPieMenu ist, zu basteln ...
+	auto dl						 = endAngle - startAngle;
+	_initData._execPoint		 = pos;
+	_initData._minR				 = minRadius;
+	_initData._start0			 = startAngle;
+	_initData._max0				 = qAbs( dl );
+	_initData._negativeDirection = dl < 0.;
+	calculateStillData();
+	auto p = pos - QPointF{ _data.r(), _data.r() }.toPoint();
+	popup( p );
+}
+
+void QPieMenu::childHidden( QPieMenu *child )
+{
+	initHover( actionIndex( child->menuAction() ) );
 }
 
 #pragma optimize( "t", on )

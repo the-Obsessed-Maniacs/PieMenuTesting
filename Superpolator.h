@@ -111,7 +111,7 @@ class SuperPolator : public QList< SPElem >
 	// Animationen müssen gut vorbereitet werden.  Vermutlich macht es am meisten Sinn, für jede
 	// Animation eine eigene Vorbereitung zu kreieren, schliesslich gibt es immer aktuelle Werte
 	// zu sichern oder Ähnliches.  Ich beginne mal mit der einfachsten Animation ...
-	void			initShowUp( int duration_ms );
+	void			initShowUp( int duration_ms, qreal startO = 0.f );
 	void			initHideAway( int duration_ms, int currentActiveItem = -1 );
 	void			initStill( int duration_ms );
 

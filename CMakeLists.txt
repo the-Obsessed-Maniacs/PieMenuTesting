@@ -37,7 +37,11 @@ set( PROJECT_SOURCES
 		FastTrigo/FastTrigo.cpp
 		Superpolator.h
 		Superpolator.cpp
+
         ${TS_FILES}
+)
+set( STATE_CHARTS
+	diagrams/States.scxml
 )
 add_definitions( -DNOMINMAX )
 if ( ${DBG_EVENTS} )
@@ -54,7 +58,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
     )
-	qt_add_statecharts( PieMenuTesting StateEngine.scxml )
+	#qt_add_statecharts( PieMenuTesting ${STATE_CHARTS} OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/StateEngine )
 
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET PieMenuTesting APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
@@ -95,13 +99,13 @@ set_target_properties(PieMenuTesting PROPERTIES
     WIN32_EXECUTABLE TRUE
 )
 
-include(GNUInstallDirs)
-install(TARGETS PieMenuTesting
+include( GNUInstallDirs )
+install( TARGETS PieMenuTesting
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 if(QT_VERSION_MAJOR EQUAL 6)
-    qt_finalize_executable(PieMenuTesting)
+    qt_finalize_executable( PieMenuTesting )
 endif()

@@ -73,7 +73,7 @@ void SuperPolator::setAngle( int index, qreal radians )
 	if ( index >= 0 && index < count() ) operator[]( index ) = radians;
 }
 
-void SuperPolator::initShowUp( int duration_ms )
+void SuperPolator::initShowUp( int duration_ms, qreal startO )
 {
 	//  Initialisierung der "show-up" Animation
 	//  =======================================
@@ -83,7 +83,7 @@ void SuperPolator::initShowUp( int duration_ms )
 	//  =>   t_0i = index * start_max / ( count - 1 ),
 	//  =>   t_1i = end_min + ( index + 1 ) * ( 1. - end_min ) / count
 	int	 i = 0, cnt = count();
-	auto startVals		= _mm256_setr_pd( 0., first().a, 0., 0.5 );
+	auto startVals		= _mm256_setr_pd( 0., ( startO == 0.f ? first().a : startO ), 0., 0.5 );
 	auto endVals		= _mm256_setr_pd( r0, 0, 1., 1. );
 	auto ssst_start_max = 0.3, ssst_end_min = 0.3;
 	auto sst01 = _mm_setr_pd( 0., ( ( cnt - 1. ) * ssst_end_min + 1. ) / cnt );

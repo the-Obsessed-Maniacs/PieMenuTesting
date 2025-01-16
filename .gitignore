@@ -75,3 +75,4 @@ CMakeLists.txt.user*
 /.vs
 /build
 /out
+diagrams/_*.scxml

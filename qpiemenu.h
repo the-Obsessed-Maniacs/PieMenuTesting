@@ -9,6 +9,7 @@
 #include "Helpers.h"
 #include "Superpolator.h"
 
+#include <QBasicTimer>
 #include <QMenu>
 #include <QTime>
 
@@ -26,7 +27,7 @@ struct PieStyleData
 struct PieInitData
 {
 	QPoint	_execPoint;
-	qreal	_start0{ qDegreesToRadians( 175 ) }, _max0{ qDegreesToRadians( 285 ) };
+	qreal	_start0{ qDegreesToRadians( 175 ) }, _max0{ qDegreesToRadians( 285 ) }, _minR{ 0. };
 	qreal	_selRectAlpha{ 0.5 };
 	quint32 _animBaseDur{ 250 }, _subMenuDelayMS{ 500 };
 	bool	_negativeDirection{ true }, _isContext{ true }, _isSubMenu{ false };
@@ -35,6 +36,7 @@ struct PieInitData
 	{
 		_execPoint = menuExecPoint, _isContext = isContextMenu;
 	}
+	constexpr qreal dir( qreal f = 1.f ) const { return ( _negativeDirection ? -f : f ); }
 };
 #pragma endregion
 #pragma region( Animationshelfer_SelectionRect )
@@ -96,7 +98,7 @@ class QPieMenu : public QMenu
 	~QPieMenu() override;
 	// Overridden methods
 	QSize	 sizeHint() const override;
-
+	void	 setVisible( bool vis = true ) override;
 	QAction *actionAt( const QPoint &pt ) const;
 	int		 actionIndexAt( const QPoint &pt ) const;
 	int		 actionIndex( QAction *a ) const { return actions().indexOf( a ); }
@@ -120,11 +122,12 @@ class QPieMenu : public QMenu
 	void showEvent( QShowEvent *e ) override;
 	// -> the mouse move event is used to select/highlight the active action
 	void mouseMoveEvent( QMouseEvent *e ) override;
-	// -> Animationen weiterschreiben, verzögertes Öffnen von Submenüs
-	void timerEvent( QTimerEvent *e ) override;
-	// -> ...
 	void mousePressEvent( QMouseEvent *e ) override;
 	void mouseReleaseEvent( QMouseEvent *e ) override;
+	// -> ...
+	void keyPressEvent( QKeyEvent *e ) override;
+	// -> Animationen weiterschreiben, verzögertes Öffnen von Submenüs
+	void timerEvent( QTimerEvent *e ) override;
 
 	// -> the wheel event could be used to rotate the items around.
 	//    It's not a must-have, it's a like to have...
@@ -134,43 +137,13 @@ class QPieMenu : public QMenu
 	void enterEvent( QEnterEvent *e ) override { /*QMenu::enterEvent( e );*/ }
 	void leaveEvent( QEvent *e ) override { /*QMenu::leaveEvent( e );*/ }
 	void hideEvent( QHideEvent *e ) override { /*QMenu::hideEvent( e );*/ }
-	void keyPressEvent( QKeyEvent *e ) override { /*QMenu::keyPressEvent( e );*/ }
 #pragma endregion
 #pragma region( private_redesign )
   private:
 	//
 	// Redesign der privaten Menu-Anteile:
 	// -> Typen:
-	//      Implementation von Hover- bzw. selection-State:
-	//      ===============================================
 	enum class PieMenuStatus { hidden = 0, still, closeby, hover, item_active };
-	enum class PieMenuEreignis {
-		// Ereignisse, der Reihe nach, wie sie auftreten dürften
-		show_up,
-		hide_away,
-		closeBy_start,
-		closeBy_switch,
-		closeBy_leave,
-		hover_start,
-		hover_switch,
-		hover_leave,
-		hover_activate,
-		key_select_current,
-		release_current,
-		activate_action,
-		activate_submenu,
-		submenu_activate_action,
-		submenu_hide,
-
-		// ein paar einfache Ereignisse, die nichts mit dem "Grundstatus" zu tun haben, sondern eher
-		// im Hintergrund laufen:
-		time_out,
-		animate,
-		zeitanimation_beginnt,
-		zeitanimation_abgeschlossen, // damit zentral geprüft wird, ob der timer zu stoppen ist
-		timer_startet,
-		timer_abbruch,
-	};
 	// -> Variablen:
 	// Die Init-Daten (wie beschaffen?)
 	PieInitData		 _initData;
@@ -193,47 +166,63 @@ class QPieMenu : public QMenu
 	bool			 _selRectDirty{ false };
 	PieSelectionRect _selRect, _srS, _srE;
 	// Variablen des Zustandsautomaten
+	// PieMenuState	*_stateEngine;
+
 	PieMenuStatus	 _state{ PieMenuStatus::hidden };
 	// Mouse / Pointer Device:
 	QPoint			 _lastPos;
 	qreal			 _lastDm, _lastDi;
 	// verschiedene "current IDs":
-	int				 _timerId{ 0 }, _alertId{ 0 }; // ich lasse 2 Timer laufen
-	int				 _hoverId{ -1 }, _folgeId{ -1 }, _activeId{ -1 };
-	// Zeitanimationen (mglw. kann ich mir die Booleans sparen und nutze QTime::isValid() ?)
-	bool			 _rectsAnimiert{ false }, _selRectAnimiert{ false };
-	QTime			 _selRectStart, _hoverStart, _folgeBeginn;
+	//  _hoverId ist im Endeffekt, was gerade gewählt ist - egal ob via KBD oder Mouse.
+	//  _folgeId verfolgen wir im Moment -> eigentlich Mumpitz, weil die Folge ja direkt aus dem
+	//          Mouse Move Event berechnet wird -> wo auch die ID berechnet wurde -> als Speicher
+	//          für Wechsel gut.
+	//  _alertId bei Mouse-Hover machen wir Submenüs bei längerem Hovern auf -> wenn die _hoverId
+	//  zwischendurch nicht gesprungen ist
+	//  _laId ... "last active id" -> jedes Mal wenn wir de-hovern, wird _laId gesetzt
+	int				 _hoverId{ -1 }, _folgeId{ -1 }, _alertId{ -1 }, _laId{ -1 };
+	// Zeitanimationen
+	QBasicTimer		 _rectsAnimiert, _selRectAnimiert, _alertTimer, _kbdOvr;
+	QTime			 _selRectStart, _folgeBeginn;
 	int	  _folgeDauerMS; // beim Folgen kann es schnellere und langsamere Transitionen geben ...
 
 	qreal _folgeDW{ 0. };
 	QList< qreal >	 _hitDist;
 	PieSelectionRect _folge{ { 0, 0, 0, 0 }, Qt::GlobalColor::transparent }, _folgeStart,
 		_folgeStop;
+	// showAsChild: quellmenu
+	QPieMenu *_causedMenu{ nullptr };
 
 	// -> Methoden:
 	// Style-Daten beschaffen (bei init und bei StyleChange)
-	void  readStyleData();
+	void	  readStyleData();
 	// Die Größen der Boxen berechnen -> Grunddaten
-	void  calculatePieDataSizes();
+	void	  calculatePieDataSizes();
 	// Die Ruhepositionen berechnen
-	void  calculateStillData();
+	void	  calculateStillData();
 	// Kleiner Helfer, den ich ggf. an mehreren Stellen brauche
-	qreal startR( int runde ) const;
+	qreal	  startR( int runde ) const;
+	void	  setState( PieMenuStatus s ) { qDebug() << "[[" << ( _state = s ) << "]]"; }
 
-	// Statusverwaltung!
-	void  ereignis( PieMenuEreignis e, qint64 parameter = 0ll, qint64 parameter2 = 0ll );
-	void  makeState( PieMenuStatus s );
-	void  updateCurrentVisuals();
-	bool  hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID );
+	void	  makeState( PieMenuStatus s );
+	void	  showChild( int index );
+	void	  initVisible( bool show );
+	void	  initCloseBy( int newFID = -1 );
+	void	  initHover( int newHID = -1 );
+	void	  updateCurrentVisuals();
+	bool	  hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID );
 	// Ein kluger Hit-Test rechnet einfach - wir nutzen diese Signed Distance Function:
-	auto  boxDistance( const auto &p, const auto &b ) const
+	auto	  boxDistance( const auto &p, const auto &b ) const
 	{
 		return qMax( qMax( b.left() - p.x(), p.x() - b.right() ),
 					 qMax( b.top() - p.y(), p.y() - b.bottom() ) );
 	}
 
-	void initHover();
-
+	void startSelRect( QRect tr = QRect() );
+	void startSelRectColorFade( const QColor &target_color );
+	void showAsChild( QPieMenu *source, QPoint pos, qreal minRadius, qreal startAngle,
+					  qreal endAngle );
+	void childHidden( QPieMenu *child );
 	// -> Variablen - Windows-spezifisch:
 	//      das transparente Fenster sollte keinen Schatten werfen !0 => geschafft!
 	HWND _dropShadowRemoved{ nullptr };
@@ -247,6 +236,7 @@ class QPieMenu : public QMenu
 
 inline QDebug operator<<( QDebug d, const QPieMenu::PieMenuStatus s )
 {
-	constexpr const char *c[] = { "hidden", "still", "closeby", "hover", "active", "child" };
+	constexpr const char *c[] = { "  hidden   ", "   still   ", "  closeby  ", "   hover   ",
+								  "item_active" };
 	return ( d << c[ int( s ) ] );
 }

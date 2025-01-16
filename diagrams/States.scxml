@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" binding="early" xmlns:qt="http://www.qt.io/2015/02/scxml-ext" qt:editorversion="15.0.0" name="PieMenuState" initial="Root">
+    <qt:editorinfo initialGeometry="-1.46;-71.31;-20;-20;40;40"/>
+    <datamodel>
+        <data id="dM" expr="0"/>
+        <data id="dI" expr="0"/>
+        <data id="id" expr="-1"/>
+        <data id="minDm" expr="5"/>
+        <data id="r0" expr="10"/>
+        <data id="selId" expr="-1"/>
+        <data id="keyOvr" expr="false"/>
+        <data id="r2" expr="2*r0"/>
+    </datamodel>
+    <parallel id="Root">
+        <qt:editorinfo scenegeometry="0;0;-425.29;-50;1369.32;900.09" geometry="0;0;-425.29;-50;1369.32;900.09"/>
+        <transition type="internal" event="initEvent">
+            <assign location="minDm" expr="_event.data.minDm"/>
+            <assign location="r0" expr="_event.data.r0"/>
+        </transition>
+        <transition type="internal" event="mouseMove" cond="!keyOvr">
+            <assign location="dM" expr="_event.data.dM"/>
+            <assign location="dI" expr="_event.data.dI"/>
+            <assign location="id" expr="_event.data.id"/>
+            <raise event="start_closeBy"/>
+            <raise event="end_closeBy"/>
+            <raise event="start_hover"/>
+            <raise event="end_hover"/>
+        </transition>
+        <state id="MainState" initial="hidden">
+            <qt:editorinfo scenegeometry="481.71;401.66;154.22;36.03;780.08;804.49" geometry="481.71;401.66;-327.49;-365.63;780.08;804.49"/>
+            <transition type="internal" event="hideEvent" target="hidden">
+                <qt:editorinfo startTargetFactors="8.74;48.61"/>
+            </transition>
+            <state id="hidden">
+                <qt:editorinfo scenegeometry="265.45;168.81;205.45;118.81;120;100" geometry="-216.26;-232.85;-60;-50;120;100"/>
+                <transition type="internal" event="showEvent" target="still"/>
+            </state>
+            <state id="still">
+                <qt:editorinfo scenegeometry="774.22;177.38;616.22;127.38;251.78;228.35" geometry="292.51;-224.28;-158;-50;251.78;228.35"/>
+                <transition type="external" event="start_closeBy" target="closeBy" cond="not(keyOvr) and (dM &gt; minDm) and (dI &gt; 0) and (dI &lt; r2)">
+                    <qt:editorinfo startTargetFactors="10.87;95.27" endTargetFactors="15.85;26.68"/>
+                </transition>
+            </state>
+            <state id="closeBy">
+                <qt:editorinfo scenegeometry="801.87;576.13;741.87;526.13;120;100" geometry="320.16;174.47;-60;-50;120;100"/>
+                <transition type="external" event="end_closeBy" target="still" cond="keyOvr or (dM &lt; minDm) or (dI &gt; r2)">
+                    <qt:editorinfo movePointCond="2.90;-40.75" startTargetFactors="88.91;15.39" movePoint="0;-37.84" endTargetFactors="84.81;86.34"/>
+                </transition>
+                <transition type="external" event="start_hover" target="selected" cond="not(keyOvr) and (dI &lt;= 0)">
+                    <qt:editorinfo startTargetFactors="10.03;19.19" endTargetFactors="84.23;14.87"/>
+                    <assign location="hasSub" expr="hasSubmenu( id )"/>
+                </transition>
+            </state>
+            <state id="selected">
+                <qt:editorinfo scenegeometry="500.63;666.52;440.63;616.52;120;100" geometry="18.92;264.86;-60;-50;120;100"/>
+                <transition type="external" event="end_hover" target="closeBy" cond="keyOvr or (dI &gt; 0)">
+                    <qt:editorinfo startTargetFactors="88.45;83.22" endTargetFactors="39.29;77.74"/>
+                </transition>
+                <onentry>
+                    <assign expr="id" location="selId"/>
+                </onentry>
+            </state>
+            <state id="subMenu">
+                <qt:editorinfo scenegeometry="263.99;538.46;203.99;488.46;120;100" geometry="-217.72;136.80;-60;-50;120;100"/>
+            </state>
+        </state>
+        <state id="KeyboardOverride" initial="Inactive">
+            <qt:editorinfo scenegeometry="24.74;84.41;-224.95;88.31;385.20;731.54" geometry="24.74;84.41;-249.69;3.90;385.20;731.54"/>
+            <state id="Inactive">
+                <qt:editorinfo scenegeometry="-139.71;225.58;-199.71;175.58;336.08;100" geometry="-164.45;141.17;-60;-50;336.08;100"/>
+                <transition type="internal" event="keyPress" target="Active">
+                    <qt:editorinfo startTargetFactors="17.32;83.71"/>
+                    <assign location="keyOvr" expr="true"/>
+                    <raise event="end_hover"/>
+                    <raise event="end_closeBy"/>
+                    <cancel sendid="keyOvrTimeout"/>
+                </transition>
+            </state>
+            <state id="Active">
+                <qt:editorinfo scenegeometry="34.93;695.63;-203.98;583.03;335.74;162.60" geometry="10.19;611.22;-238.91;-112.60;335.74;162.60"/>
+                <transition type="internal" event="navKeyReleased" target="Active">
+                    <send event="keyOvrTimeout" delay="1s"/>
+                </transition>
+                <transition type="internal" event="keyOvrTimeout" target="Inactive">
+                    <qt:editorinfo startTargetFactors="84.46;14.57"/>
+                    <assign location="keyOvr" expr="false"/>
+                </transition>
+                <transition type="internal" event="keyPress" target="Active">
+                    <cancel sendid="keyOvrTimeout"/>
+                </transition>
+            </state>
+        </state>
+    </parallel>
+</scxml>
