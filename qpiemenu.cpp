@@ -109,9 +109,8 @@ void QPieMenu::actionEvent( QActionEvent *event )
 	//
 	// ToDo für später: Animation beim Einfügen/Entfernen
 	calculatePieDataSizes();
-	calculateStillData();
+	createStillData();
 	_actionRectsDirty = true;
-	updateGeometry();
 	event->accept();
 	// QMenuPrivate at least needs to know about whatever they think is needed
 	QMenu::actionEvent( event );
@@ -133,60 +132,6 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 	pp.closeSubpath();
 	p.fillPath( pp, _styleData.HLtransparent );
 
-	// Folgen: Sektorhighlighting
-	if ( _folge.first.isValid() && _folge.second.alpha() > 0 )
-	{
-		// Das war's schon zum Ein- und Ausblenden.  Nun zeichne ich den aktuellen Zustand.
-		p.setPen( _folge.second );
-		auto			&f = _folge.first;
-		// Zielpunkte aus dem Rect bestimmen:
-		// ->   erstmal abhängig von der Lage.  Bin ich komplett innerhalb eines Sektors, wird es
-		//      vergleichsweise einfach.
-		QList< QPointF > l( 1 ); // Das Zentrum darf schon mal drin sein ...
-		if ( f.bottom() < 0 )	 // ich bin oben links und rechts
-		{
-			if ( f.right() < 0 ) l << f.topRight() << f.topLeft() << f.bottomLeft();
-			else if ( f.left() > 0 ) l << f.bottomRight() << f.topRight() << f.topLeft();
-		} else if ( f.top() > 0 ) { // ich bin unten links und rechts
-			if ( f.right() < 0 ) l << f.topLeft() << f.bottomLeft() << f.bottomRight();
-			else if ( f.left() > 0 ) l << f.bottomLeft() << f.bottomRight() << f.topRight();
-		}
-		if ( l.count() < 2 ) // ich bin irgendwo auf den Koordinatenachsen
-		{
-			// jetzt bin ich sicher unten:
-			if ( f.top() >= 0 )
-				l << f.topLeft() << f.bottomLeft() << f.bottomRight() << f.topRight();
-			// sicher oben
-			if ( f.bottom() <= 0 )
-				l << f.bottomRight() << f.topRight() << f.topLeft() << f.bottomLeft();
-			// sicher links
-			if ( f.right() <= 0 )
-				l << f.topRight() << f.topLeft() << f.bottomLeft() << f.bottomRight();
-			// sicher rechts
-			if ( f.left() >= 0 )
-				l << f.topLeft() << f.topRight() << f.bottomRight() << f.bottomLeft();
-			// die letzte Möglichkeit bedeutet, dass die Box irgendwie das Zentrum überdeckt. Diesen
-			// Fall haben wir am Anfang der Animation, bis das animierte Rect das Zentrum verlassen
-			// hat.  Wir sollten hier einfach nichts zeichnen ...
-		}
-		l << QPointF();
-		if ( l.count() > 2 ) p.drawPolyline( l.constData(), l.count() );
-
-		// QPainterPath path;
-		// path.lineTo( da.r1() * sc ); // sollte zum Mittelpunkt des Elementes gehen
-		// path.lineTo( da.r1() * sc0 );
-		// path.lineTo( da.r0() * sc0 );
-		// path.lineTo( da.r0() * sc1 );
-		// path.lineTo( da.r1() * sc1 );
-		// path.lineTo( da.r1() * sc );
-		//  QConicalGradient gradient( {}, qRadiansToDegrees( om ) );
-		//  gradient.setColorAt( 0., _styleData.HL );
-		//  gradient.setColorAt( qAbs( dw1 * M_2_PI ), _styleData.HLtransparent );
-		//  gradient.setColorAt( qAbs( dw2 * M_2_PI ), _styleData.HLtransparent );
-		//  gradient.setColorAt( 1., _styleData.HL );
-		// p.strokePath( path, _folge.second );
-		// p.fillPath( path, gradient );
-	}
 	// SelectionRect
 	if ( _selRect.first.isValid() )
 	{
@@ -198,6 +143,7 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 		p.setBrush( _selRect.second );
 		p.drawRoundedRect( _selRect.first, r, r );
 	}
+
 	// Zum Schluss die Elemente drüberbügeln
 	for ( int i( 0 ); i < ac; ++i )
 	{
@@ -240,17 +186,12 @@ void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 		// Finde die nächstgelegene Aktion und den Abstand zum Mittelpunkt durch den Hit-Test
 		int	  id( -1 );
 		// -> ich möchte einen kleinen, nicht-reaktiven Kreis rund um den Mittelpunkt bewahren
-		// (minmax) -> (out)
 		qreal r = _data.r();
 		bool  out =
 			_lastDm >= qMax( 0.5 * qMin( _avgSz.width(), _avgSz.height() ), 2. * _styleData.sp );
 		bool hit	 = hitTest( p, _lastDi, id );
 		bool closeBy = !hit && out && ( _lastDi <= 2 * r ) && ( id != -1 );
-		// Alle Informationen sind beschafft und Schlussfolgerungen stehen bereit -> State-Engine
-		// bearbeiten und Ereignisse produzieren:
-		//_stateEngine->submitEvent(
-		//	"mouseMove",
-		//	QVariantMap{ { "dM", { _lastDm } }, { "dI", { _lastDi } }, { "id", { id } } } );
+		// Alle Informationen sind beschafft und Schlussfolgerungen stehen bereit
 		switch ( _state )
 		{
 			case PieMenuStatus::still:
@@ -259,8 +200,8 @@ void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 				else if ( closeBy ) initCloseBy( id );
 				break;
 			case PieMenuStatus::closeby:
-				if ( hit ) initCloseBy(), initHover( id );
-				else if ( !closeBy ) initCloseBy(), makeState( PieMenuStatus::still );
+				if ( hit ) initHover( id );
+				else if ( !closeBy ) initStill();
 				else if ( _folgeId != id ) initCloseBy( id );
 				break;
 			case PieMenuStatus::hover:
@@ -268,51 +209,13 @@ void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 				{
 					initHover();
 					if ( closeBy ) initCloseBy( id );
-					else makeState( PieMenuStatus::still );
+					else initStill();
 				} else if ( id != _hoverId ) initHover( id );
 				break;
 			// In allen anderen Stati ist hier (vorerst) nichts zu tun.
 			case PieMenuStatus::item_active: break;
 			default: break;
 		}
-
-		// Soweit - mehr sollte das mouseMoveEvent nicht tun müssen.
-
-		// ALTERCODE: (ein paar nette Berechnungen drin)
-		// -> der Close-Test hat ergeben, ob der Cursor in der Nähe eines Items ist
-		// if ( closeBy )
-		//{
-		//	// Ereignis auslösen: sollte die Animation eingeschaltet werden, werden die letzten
-		//	// Daten des Sektors genutzt -> die stehen seit der letzten Animation in _folge.
-		//	if ( _folgeId != id )
-		//	{
-		//		// Da die "Distance Arc"-Idee Moppelkotze war ... animieren wir einfach die Rects an
-		//		// sich.
-		//		auto g = _actionPieData[ id ]._geo;
-		//		_folgeStop.first.setSize( QSizeF( _actionPieData[ id ] ) * 1.5 );
-		//		_folgeStop.first.moveCenter( g.center() );
-		//		_folgeStop.second = _styleData.HL;
-		//		if ( _folgeId == -1 ) _folgeDW = 0; // Starte Folgen an sich
-		//		else
-		//		{
-		//			// Folgen wechselt -> das heisst, das neue Folge-Element ist im Moment etwas von
-		//			// seinem ursprünglichen Winkel verschoben.  Die Beste Idee ist vermutlich,
-		//			// wieder eine kleinste Differenz zu bestimmen (asin/acos oder so), die dann zu
-		//			// _folgeDW wird.
-		//			BestDelta bd;
-		//			bd.init( 1., _actionPieData[ id ]._angle );
-		//			auto w = qAcos( _actionRects[ id ].center().y() / _actionPieData._radius );
-		//			bd.addRad( w ), bd.addRad( -w );
-		//			_folgeDW = bd.best();
-		//		}
-		//		ereignis( PieMenuEreignis::distance_closing_in, id );
-		//	}
-		//	// Ansonsten ist nur die Farbe zu aktualisieren - die soll ja von der Nähe abhängig
-		//	// sein. der Alpha-Wert der Farbe sollte von der Entfernung zum Item abhängig sein ...
-		//	auto alpha = sin( ( 1. - _lastDi / ( 2 * r ) ) * M_PI_2 );
-		//	if ( _folgenAnimiert ) _folgeStop.second.setAlphaF( alpha );
-		//	else _folge.second.setAlphaF( alpha ), update();
-		//} else ereignis( PieMenuEreignis::distance_leaving );
 	}
 	if ( _state == PieMenuStatus::hover || _lastDm < _avgSz.height() ) e->accept();
 	else QWidget::mouseMoveEvent( e );
@@ -341,7 +244,6 @@ void QPieMenu::mousePressEvent( QMouseEvent *e )
 		default: // Jeder Mouse-Press ausserhalb von Elementen ist dazu da, das Menu wieder zu
 				 // schließen.  Bin mir gerade nicht sicher, ob ich den Release besser abwarten
 				 // sollte...
-			setActiveAction( nullptr );
 			initVisible( false );
 			e->accept();
 			break;
@@ -361,12 +263,12 @@ void QPieMenu::mouseReleaseEvent( QMouseEvent *e )
 		auto a = actions().at( _hoverId );
 		if ( auto am = qobject_cast< QPieMenu * >( a->menu() ) )
 		{
-			makeState( PieMenuStatus::item_active );
+			initActive();
 		} else {
 			setActiveAction( a );
 			a->activate( QAction::Trigger );
 			emit QMenu::triggered( a );
-			initVisible( false );
+			//			initVisible( false );
 		}
 	} else if ( _state != PieMenuStatus::hidden ) return QWidget::mouseReleaseEvent( e );
 	e->accept();
@@ -420,7 +322,7 @@ void QPieMenu::keyPressEvent( QKeyEvent *e )
 			focusNextPrevChild( dir == next );
 			_hoverId = actionIndex( activeAction() );
 			_kbdOvr.start( _initData._subMenuDelayMS * 2, this );
-			makeState( PieMenuStatus::item_active );
+			initActive();
 			break;
 		case none: return QMenu::keyPressEvent( e );
 	}
@@ -433,8 +335,7 @@ void QPieMenu::timerEvent( QTimerEvent *e )
 	if ( tid == _alertTimer.timerId() )
 	{
 		_alertTimer.stop();
-		if ( _state == PieMenuStatus::hover && _hoverId == _alertId )
-			makeState( PieMenuStatus::item_active );
+		if ( _state == PieMenuStatus::hover && _hoverId == _alertId ) initActive();
 	} else if ( tid == _kbdOvr.timerId() ) {
 		_kbdOvr.stop();
 		initHover( _hoverId );
@@ -523,7 +424,6 @@ void QPieMenu::calculatePieDataSizes()
 	bool previousWasSeparator = true;
 	_actionRects.resizeForOverwrite( ac );
 	_actionRenderData.resizeForOverwrite( ac );
-	_hitDist.resizeForOverwrite( ac );
 	_data.clear( ac );
 
 	for ( int i( 0 ); i < ac; ++i )
@@ -576,110 +476,6 @@ void QPieMenu::calculatePieDataSizes()
 	if ( auto cnt = ac - noSzItems ) _avgSz = allSz / cnt;
 }
 
-void QPieMenu::calculateStillData()
-{
-	int runde = 0, ac = actions().count();
-	if ( _data.count() != ac ) return;
-	// Hier kommt erst einmal der optimierte Algorithmus hinein: die "stillData" berechnen wir
-	// einmalig nach ActionEvent, sie sind die Ruhepositionen für unser Menü.  Diese sind auch
-	// wichtig für das Bounding Rect: nach Abschluss der Berechnungen sollten wir ein paar kluge
-	// Margins auf das boundingRect draufrechnen, damit wir ohne unsere Geometrie ändern zu
-	// müssen, auch Skalierungseffekte erstellen können.
-	//
-	// Zuerst brauchen wir eine gute Schätzung für den startRadius.  Wir haben gelernt, dass
-	// hier sowohl Breite, als auch Höhe eingehen. Weiterhin erscheint mir gerade relativ klar,
-	// dass bis zu einem
-	//      Radius < length( fromSize( average_item_size ) )
-	// der Durchschnittsgröße weniger Items im Kreis platziert werden können, weil im Endeffekt
-	// nur eine Seite des Kreises zum Anordnen von Elementen zur Verfügung steht.  Wären auf der
-	// anderen Seite, also ab 180° Gesamtüberdeckung auch Elemente, würde es bei diesen kleinen
-	// Radien zwangsläufig zu Überdeckungen kommen.
-	QPointF						 sc, off;
-	QPoint						 c;
-	QRect						 box;
-	QSize						 si, sii;
-	auto						 scddt = [ &sc ]() { return QPointF{ sc.y(), -sc.x() }; };
-	qreal						 w, dir, r, n, ww;
-	BestDelta					 bd;
-	Intersector< QRect, QPoint > occ;
-	for ( int i = 0; i < ac; ++i )
-	{
-		si = _data[ i ];
-		// Winkel initialisieren oder aus der letzten Runde übernehmen
-		if ( i == 0 )
-		{
-			r = startR( runde++ );
-			w = _initData._start0, ww = 0;
-			dir = ( _initData._negativeDirection ? -1. : 1. );
-			sc	= qSinCos( w );
-			c	= ( r * sc ).toPoint();
-			box.setSize( si ), box.moveCenter( c );
-			occ.clear(), occ.add( box );
-		}
-		// nur sichtbare Elemente berücksichtigen
-		if ( si.isValid() )
-		{
-			_data.setAngle( i, w );
-			// Prüfung: gibt es noch ein Folgeelement?
-			auto ii = i + 1;
-			while ( ii < ac && !( sii = _data[ ii ] ).isValid() ) ++ii;
-			if ( ii < ac )
-			{
-				// Es gibt noch eine Folgebox zu berechnen...
-				off = /*dir * qSgn( scddt() ) * ... scheinbar doch völlig unwichtig */
-					( QPoint{ _styleData.sp, _styleData.sp }.toPointF()
-					  + 0.5 * ( fromSize( si ) + fromSize( sii ) ) );
-				bd.init( dir, w );
-				for ( auto v : { c + off, c - off } )
-				{
-					if ( abs( v.x() ) <= r )
-						n = qAsin( v.x() / r ), bd.addRad( n ), bd.addRad( M_PI - n );
-					if ( abs( v.y() ) <= r )
-						n = qAcos( v.y() / r ), bd.addRad( n ), bd.addRad( -n );
-				}
-				// Ergebnis: der nächste Winkel - vielleicht ...
-				n = bd.best();
-				ww += qAbs( n );
-				if ( !qFuzzyIsNull( n ) && ww < _initData._max0 )
-				{
-					c = ( r * ( sc = qSinCos( w + n ) ) ).toPoint();
-					box.setSize( sii ), box.moveCenter( c );
-					if ( occ.add( box ) )
-					{
-						w += n;
-						// Überspringen von leeren Elementen
-						// ...
-						i = ii - 1;
-						// Ich habe ein Ergebnis berechnet - auf zum nächsten!
-						continue;
-					}
-				}
-				// Landet der Program Counter hier, dann brauchen die Elemente mehr Platz.
-				// -> mit "i = -1;" startet die Schleife von vorn.
-				i = -1;
-			}
-		} else {
-			_data.setAngle( i, 0. );
-		}
-	}
-	// Nicht den Radius vergessen, der wird später gebraucht!!!
-	_data.setR( r );
-	// Debug-Hilfe: ich möchte den ganzen Kreis sehen - ggf. muss es auch so bleiben, damit die
-	// Animationen nicht out of bounds gerendert werden.
-	_boundingRect /*= occ._br;*/ = QRectF{ { -r, -r }, QPointF{ r, r } }.toRect();
-	// Justiere zur Sicherheit mal jeweils um die (halbe) Durchschnittsgröße.
-	auto xa						 = _avgSz.width();	//>> 1;
-	auto ya						 = _avgSz.height(); // >> 1;
-	_boundingRect.adjust( -xa, -ya, xa, ya );
-	updateGeometry();
-	// Informiere die State Engine über die Datenänderungen
-	//_stateEngine->submitEvent(
-	//	"initEvent", QVariantMap{ { "r0", r },
-	//							  { "minDm", qMax( 0.5 * qMin( _avgSz.width(), _avgSz.height()
-	//),
-	//											   2. * _styleData.sp ) } } );
-}
-
 qreal QPieMenu::startR( int runde ) const
 {
 	auto asz = _avgSz;
@@ -688,10 +484,11 @@ qreal QPieMenu::startR( int runde ) const
 	// Spacing"?)
 	auto r3	 = qSqrt( QPointF::dotProduct( avp, avp ) );
 	// Bisher eine gute Schätzung:
-	//      ( AspectRatio * (item_height+spacing) * itemCount ) / floor( winkelÜberdeckung / 90°
-	//      )
-	auto r0	 = qMax( _initData._minR, ( avp.y() / avp.x() ) * ( asz.height() + _styleData.sp )
-										  * actions().count() / qFloor( _initData._max0 / M_PI_2 ) );
+	//  ( AspectRatio * (item_height+spacing) * itemCount ) / floor( winkelÜberdeckung / 90° )
+	// MUSS ÜBERARBEITET WERDEN!!! Zu viele Rechenvorgänge ...
+	auto r0	 = qMax( avp.y(), qMax( _initData._minR,
+									( avp.y() / avp.x() ) * ( asz.height() + _styleData.sp )
+										* actions().count() / qFloor( _initData._max0 / M_PI_2 ) ) );
 	// Also: 0. - 3. Runde bewegen sich der Radius linear zwischen r0 und r3, falls _minR nicht zu
 	// gross ist
 	if ( r0 < r3 && runde < 4 ) return r0 + runde * ( r3 - r0 ) / 3;
@@ -699,40 +496,162 @@ qreal QPieMenu::startR( int runde ) const
 	return qMax( r0, r3 ) + ( runde - 3 ) * ( asz.height() >> 1 );
 }
 
-void QPieMenu::makeState( PieMenuStatus s )
+void QPieMenu::createStillData()
 {
-	if ( _state != s || s == PieMenuStatus::hidden )
-	{
-		switch ( s )
+	// Die "neue" Rechenfunktion für die Basisdaten.
+	// =============================================
+	// Wichtige Eckpunkte:
+	//  _initData._isSubMenu:   -   ich beginne beim zentralen Element (je nachdem, ob geradzahlig
+	//                              oder nicht) und gehe erst in eine, dann in die andere Richtung
+	// Ansonsten: wenn ich bei 0 beginne und nur in eine Richtung laufe muss ich sicherstellen, dass
+	// der Anfansgwinkel nicht überdeckt ist.  Dort soll das Menu schliesslich anfangen und nicht
+	// schon längst angefangen haben ... ergo beim Item #0: lastSz = 0, aber berechnen
+
+	int ac = actions().count(), runde = -1, ip, im;
+	if ( _data.count() != ac ) return;
+
+	QRectF rwsd0{ _initData._minR, _initData._start0, 1.f, _initData.dir() }, rwsd{ rwsd0 }, nr;
+	QSizeF lstSz0{ 0., 0. }, lstSz{ lstSz0 };
+	qreal  deltaSum, delta;
+	Intersector< QRectF, QPointF > overlap;
+	bool						   needMoreSpace( false );
+	do {
+		deltaSum = 0., needMoreSpace = false, runde++, overlap.clear();
+		rwsd0.moveLeft( startR( runde ) );
+		// Den Start feststellen: ist der ExecPoint nicht gesetzt, wurde dieses Objekt nicht mit den
+		// Hilfsfunktionen, sondern mit QMenu gestartet -> standard Werte nehmen!
+		if ( _initData._isSubMenu )
 		{
-			case PieMenuStatus::hidden: break;
-			case PieMenuStatus::still: // STILL-Zustand herstellen - sollte immer akzeptabel
-									   // sein!
-				// Alle Elemente fahren auf ihren Ursprungszustand zurück.
-				_folgeId = _hoverId = -1;
-				_data.initStill( _initData._animBaseDur >> 1 );
-				_rectsAnimiert.start( 10, this );
-				startSelRect( { 0, 0, -1, -1 } );
-				break;
-			case PieMenuStatus::closeby: break;
-			case PieMenuStatus::hover: break; // using initHover(id)
-			case PieMenuStatus::item_active:
-				// Die _hoverId sollte vorab gesetzt werden.  Hier wird nur der Status durch das
-				// Selection Rect übernommen. Wenn der Timer für den Keyboard Override aktiv ist,
-				// war es eine Keyboard-Aktivierung.  Wenn nicht, ist der Submenu-Timer abgelaufen.
-				{
-					auto r = _actionRects[ _hoverId ];
-					auto p = r.center();
-					r.setSize( 1.25 * r.size() );
-					r.moveCenter( p );
-					startSelRect( r );
-					if ( !_kbdOvr.isActive() ) showChild( _hoverId );
-				}
-				break;
-			default: break;
+			// Submenüs erhalten Radius- und Winkel-Angaben vor dem Popup.  Sie sollen von der Mitte
+			// aus berechnet werden, um eine möglichst gleichmäßige Überdeckung zu erhalten.
+			rwsd0.moveTop( _initData._start0 + _initData.dir( 0.5 ) * _initData._max0 );
+			ip = im = ac >> 1;
+			if ( ac % 1 )
+			{ // ungerade Anzahl -> mittlere Option kommt auf den Mittenwinkel
+				lstSz0				 = _data[ ip++ ]; // implizit als QSizeF
+				_data[ im-- ].ziel() = *reinterpret_cast< __m256d * >( &rwsd0 );
+			} else { // gerade Anzahl -> jeweils vom Startwinkel aus losschreiten.
+				--im;
+			}
+		} else {
+			// Standard: nur vorwärts laufen ...
+			im = -2, ip = 0;
 		}
-		setState( s );
+		rwsd = rwsd0;
+		rwsd.setHeight( _initData.dir( -1. ) ); // Rückwärts für die erste Runde
+		// ACHTUNG: stepBox wird immer 1x öfter aufgerufen, um die Winkelabdeckung des jew. letzten
+		// Elementes korrekt in die Berechnung mit einzubeziehen.
+		while ( !needMoreSpace && im >= -1 )
+		{
+			// Schreite rückwärts
+			delta = stepBox( im, rwsd, lstSz );
+			needMoreSpace =
+				( qFuzzyIsNull( delta ) ) || ( deltaSum += qAbs( delta ) > _initData._max0 );
+			if ( im >= 0 )
+			{
+				nr = { {}, rwsd.width() * QSizeF( _data[ im ] ) };
+				nr.moveCenter( rwsd.x() * qSinCos( rwsd.y() ) );
+				needMoreSpace |= !overlap.add( nr );
+			}
+			--im;
+		}
+		rwsd = rwsd0, lstSz = lstSz0;
+		while ( !needMoreSpace && ip <= ac )
+		{
+			// Schreite vorwärts
+			delta = stepBox( ip, rwsd, lstSz );
+			needMoreSpace =
+				( qFuzzyIsNull( delta ) ) || ( deltaSum += qAbs( delta ) > _initData._max0 );
+			if ( ip < ac )
+			{
+				nr = { {}, rwsd.width() * QSizeF( _data[ ip ] ) };
+				nr.moveCenter( rwsd.x() * qSinCos( rwsd.y() ) );
+				needMoreSpace |= !overlap.add( nr );
+			}
+			++ip;
+		}
+	} while ( needMoreSpace );
+	// Berechnungen sind abgeschlossen.  Jetzt müssen die Animationsdaten noch in Still-Daten
+	// umgewandelt werden
+	makeZielStill( rwsd.x() );
+}
+
+void QPieMenu::createZoom()
+{
+	int ac = actions().count(), ip = ( _folgeId + 1 ) % ac, im = ( _folgeId - 1 ) % ac;
+	if ( _data.count() != ac ) return;
+	// ich möchte das Element _folgeId auf Skalierungsfaktor 1.5 fahren und alle anderen Boxen
+	// ausweichen lassen
+	_data[ _folgeId ].ziel() = _mm256_setr_pd( _data.r(), _data[ _folgeId ].a, 1.25, 1. );
+	auto t01				 = _mm_setr_pd( 0., 1. );
+	_data[ _folgeId ].t01()	 = t01;
+	QRectF rwsd0{ _data.r(), _data[ _folgeId ].a, 1., _initData.dir() }, rwsd{ rwsd0 }, nr;
+	QSizeF lstSz0{ QSizeF( _data[ _folgeId ] ) * 1.25 }, lstSz{ lstSz0 };
+	qreal  delta;
+	// In dieser Situation ist die Ruhedatenberechnung längst passiert und die Boxen sind alle
+	// sichtbar auf dem Bildschirm.  Daher kann ich auf mehrere Prüfungen verzichten:
+	//  - needMorSpace wird (hoffentlich) nicht nötig sein - Ausweichstrategie, falls doch: Radius
+	//  nur für diese Elemente etwas vergrößern - ist aber leider nicht mit der Datenstruktur
+	//  abbildbar, da ich die Radien für die Elemente nur animiere, aber nicht extra Standardwerte
+	//  speichere.
+	while ( ip < ac )
+	{
+		delta = stepBox( ip, rwsd, lstSz );
+		rwsd.moveTop( rwsd.top() + delta );
+		_data[ ip++ ].t01() = t01;
 	}
+	rwsd = rwsd0, lstSz = lstSz0;
+	rwsd.setHeight( _initData.dir( -1. ) );
+	while ( im >= 0 )
+	{
+		delta = stepBox( im, rwsd, lstSz );
+		rwsd.moveTop( rwsd.top() + delta );
+		_data[ im-- ].t01() = t01;
+	}
+	operator<<( qDebug(), _data );
+}
+
+qreal QPieMenu::stepBox( int index, QRectF &rwsd, QSizeF &lastSz )
+{
+	// Ich berechne hier die nächste Box in die entsprechende Richtung.
+	BestDelta bd;
+	qreal	  d;
+	bool	  needO	 = ( index < 0 || index >= _data.count() );
+	auto	  c		 = rwsd.x() * qSinCos( rwsd.y() );
+	auto	  ns	 = rwsd.width() * ( needO ? QSizeF{ 0., 0. } : QSizeF( _data[ index ] ) );
+	auto	  offset = ( fromSize( lastSz ) + fromSize( ns ) ) * 0.5 + asPointF( _styleData.sp );
+	bd.init( rwsd.height(), rwsd.y() );
+	for ( auto i : { c + offset, c - offset } )
+	{
+		if ( abs( i.x() ) <= rwsd.x() ) bd.addRad2( qAsin( i.x() / rwsd.x() ), true );
+		if ( abs( i.y() ) <= rwsd.x() ) bd.addRad2( qAcos( i.y() / rwsd.x() ) );
+	}
+	d = bd.best();
+	if ( !needO )
+	{
+		auto &i = _data[ index ];
+		if ( d != 0. || rwsd.height() == 0. )
+		{
+			// nächste Box berechnet - aktualisiere die "Laufvariablen"
+			i.er = rwsd.x();
+			rwsd.moveTop( ( i.ea = rwsd.y() + d ) );
+			i.es   = rwsd.width();
+			lastSz = ns;
+		}
+	}
+	return d;
+}
+
+void QPieMenu::makeZielStill( qreal r0 )
+{
+	// Übertragen berechneter Animationszieldaten in die Still-Data
+	for ( auto &i : _data ) i.a = i.ea;
+	_data.setR( r0 );
+	_boundingRect = QRectF{ { -r0, -r0 }, QPointF{ r0, r0 } }.toRect();
+	auto xa		  = _avgSz.width();	 //>> 1;
+	auto ya		  = _avgSz.height(); // >> 1;
+	_boundingRect.adjust( -xa, -ya, xa, ya );
+	updateGeometry();
 }
 
 void QPieMenu::showChild( int index )
@@ -745,7 +664,7 @@ void QPieMenu::showChild( int index )
 	if ( auto cpm = qobject_cast< QPieMenu * >( a->menu() ) )
 	{
 		qDebug() << "-> child QPieMenu showing ...";
-		cpm->showAsChild( this, pm, qMax( r.width(), r.height() ) * 1.25,
+		cpm->showAsChild( this, pm, fromSize( r.size() ).manhattanLength() * 1.2,
 						  _data[ index ].a + M_2_SQRTPI, _data[ index ].a - M_2_SQRTPI );
 	} else if ( auto m = a->menu() ) {
 		qDebug() << "-> popup QMenu ...";
@@ -783,13 +702,14 @@ void QPieMenu::initVisible( bool show )
 		{
 			QMenu::setVisible( false );
 			if ( _causedMenu ) _causedMenu->childHidden( this );
+			setActiveAction( _hoverId == -1 ? nullptr : actions().at( _hoverId ) );
 		} else { // 1. Aufruf -> Anim starten, Zustand merken
 			_data.initHideAway( _initData._animBaseDur * 4, _laId > -1		? _laId
 															: _hoverId > -1 ? _hoverId
 																			: _folgeId );
 			_rectsAnimiert.start( 10, this );
 			auto c = _styleData.HLtransparent;
-			if ( activeAction() )
+			if ( _state == PieMenuStatus::hover )
 				// Element wurde ausgewählt und aktiviert -> das selRect hat eine andere
 				// Farbe bekommen!
 				c = _srE.second;
@@ -802,17 +722,34 @@ void QPieMenu::initVisible( bool show )
 	}
 }
 
+void QPieMenu::initStill()
+{ // STILL-Zustand herstellen - sollte immer akzeptabel
+  // sein.  Alle Elemente fahren auf ihren Ursprungszustand zurück.
+	_folgeId = _hoverId = -1;
+	_rectsAnimiert.stop();
+	_data.initStill( _initData._animBaseDur >> 1 );
+	_rectsAnimiert.start( 10, this );
+	startSelRect( { 0, 0, -1, -1 } );
+	setState( PieMenuStatus::still );
+}
+
 void QPieMenu::initCloseBy( int newFID )
 {
-	// Ziel des Folgemodus: das nächstgelegene Item etwas vergrößern
-	if ( newFID == -1 )
-		;
-	else
+	if ( newFID != _folgeId )
 	{
-		_folgeBeginn = QTime::currentTime();
-		setState( PieMenuStatus::closeby );
+		_folgeId = newFID;
+		// Ziel des Folgemodus: das nächstgelegene Item etwas zu vergrößern
+		if ( newFID == -1 ) _data.initStill( _initData._animBaseDur >> 1 );
+		else
+		{
+			_rectsAnimiert.stop();
+			_data.copyCurrent2Source();
+			createZoom();
+			_data.startAnimation( _initData._animBaseDur );
+			setState( PieMenuStatus::closeby );
+			_rectsAnimiert.start( 10, this );
+		}
 	}
-	_folgeId = newFID;
 }
 
 void QPieMenu::initHover( int newHID )
@@ -827,7 +764,6 @@ void QPieMenu::initHover( int newHID )
 		if ( !_kbdOvr.isActive() ) startSelRect( { 0, 0, -1, -1 } );
 		// Wenn Hover verlassen wird, muss der hover-Timer gestoppt werden.
 		_alertTimer.stop();
-		setActiveAction( nullptr );
 	} else { // Was braucht die Selection Rect-Animation? -> Position und Farbe
 		auto r = _actionRects[ _hoverId = newHID ];
 		auto p = r.center();
@@ -851,6 +787,20 @@ void QPieMenu::initHover( int newHID )
 	}
 }
 
+void QPieMenu::initActive()
+{
+	// Die _hoverId sollte vorab gesetzt werden.  Hier wird nur der Status durch das
+	// Selection Rect übernommen. Wenn der Timer für den Keyboard Override aktiv ist,
+	// war es eine Keyboard-Aktivierung.  Wenn nicht, ist der Submenu-Timer abgelaufen.
+	auto r = _actionRects[ _hoverId ];
+	auto p = r.center();
+	r.setSize( 1.25 * r.size() );
+	r.moveCenter( p );
+	startSelRect( r );
+	if ( !_kbdOvr.isActive() ) showChild( _hoverId );
+	setState( PieMenuStatus::item_active );
+}
+
 void QPieMenu::updateCurrentVisuals()
 {
 	if ( !_actionRectsDirty && !_selRectDirty ) return;
@@ -868,7 +818,7 @@ void QPieMenu::updateCurrentVisuals()
 			if ( x >= 1. )
 			{
 				_selRectAnimiert.stop();
-				qDebug() << "SRST0PP" << _selRect;
+				// qDebug() << "SRST0PP" << _selRect;
 			}
 		}
 		_selRectDirty = false;
@@ -877,13 +827,14 @@ void QPieMenu::updateCurrentVisuals()
 
 bool QPieMenu::hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID )
 {
-	int	 md = std::numeric_limits< int >::max();
+	int	 md = std::numeric_limits< int >::max(), d;
 	auto i( _actionRects.count() - 1 );
 	for ( ; i >= 0; --i )
-	{
-		_hitDist[ i ] = boxDistance( p, _actionRects.at( i ) );
-		if ( _hitDist[ i ] < md ) md = _hitDist[ i ], minDistID = i;
-	}
+		if ( !actions().at( i )->isSeparator() )
+		{
+			d = boxDistance( p, _actionRects.at( i ) );
+			if ( d < md ) md = d, minDistID = i;
+		}
 	if ( Q_LIKELY( md < std::numeric_limits< int >::max() ) )
 		mindDistance = static_cast< qreal >( md );
 	else minDistID = i;
@@ -895,7 +846,7 @@ void QPieMenu::startSelRect( QRect tr )
 	if ( !tr.isNull() ) // Ziel wird hier vorbereitet
 	{
 		if ( tr.isValid() ) _srE = { tr.toRectF(), _styleData.HL };
-		else _srE = { {}, _styleData.HLtransparent }, qDebug() << "SRSTART" << _srS << _srE;
+		else _srE = { {}, _styleData.HLtransparent } /*, qDebug() << "SRSTART" << _srS << _srE*/;
 	}
 	// - nimm die letzte Position des SelRects as Startwert
 	_srS		  = _selRect;
@@ -920,7 +871,7 @@ void QPieMenu::showAsChild( QPieMenu *source, QPoint pos, qreal minRadius, qreal
 	_initData._start0			 = startAngle;
 	_initData._max0				 = qAbs( dl );
 	_initData._negativeDirection = dl < 0.;
-	calculateStillData();
+	createStillData();
 	auto p = pos - QPointF{ _data.r(), _data.r() }.toPoint();
 	popup( p );
 }

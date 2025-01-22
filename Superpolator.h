@@ -98,38 +98,45 @@ inline QDebug operator<<( QDebug d, const __m256d& o )
 	return d;
 }
 
+inline QDebug operator<<( QDebug d, const SPElem& o )
+{
+	QDebugStateSaver s( d );
+	d.nospace() << Qt::fixed << qSetRealNumberPrecision( 2 ) << "defAngle=" << o.a
+				<< ", target=" << o.ziel();
+	return d;
+}
+
 class SuperPolator : public QList< SPElem >
 {
   public:
+	friend inline QDebug operator<<( QDebug& d, SuperPolator& s );
 	// Das sollte "PieData" erstmal ersetzen und kann dem "Algorithmus" vorgelegt werden ...
-	void			clear( int reserveSize );
-	constexpr void	setR( qreal r ) { r0 = r; }
-	constexpr qreal r() const { return r0; }
-	int				append( QSize elementSize );
-	void			setAngle( int index, qreal radians );
+	void				 clear( int reserveSize );
+	constexpr void		 setR( qreal r ) { r0 = r; }
+	constexpr qreal		 r() const { return r0; }
+	int					 append( QSize elementSize );
+	void				 setAngle( int index, qreal radians );
 
 	// Animationen müssen gut vorbereitet werden.  Vermutlich macht es am meisten Sinn, für jede
 	// Animation eine eigene Vorbereitung zu kreieren, schliesslich gibt es immer aktuelle Werte
 	// zu sichern oder Ähnliches.  Ich beginne mal mit der einfachsten Animation ...
-	void			initShowUp( int duration_ms, qreal startO = 0.f );
-	void			initHideAway( int duration_ms, int currentActiveItem = -1 );
-	void			initStill( int duration_ms );
+	void				 initShowUp( int duration_ms, qreal startO = 0.f );
+	void				 initHideAway( int duration_ms, int currentActiveItem = -1 );
+	void				 initStill( int duration_ms );
 
 	// Und nun zur Interpolation ...
 	// -> Im SuperPolator erstelle ich die aktuellen actionRects und renderDaten
 	// Die Funktion gibt "true" zurück, wenn seine interne Animation abgeschlossen ist.
-	bool			update( QList< QRect >& actions, QList< QPointF >& opaScale );
+	bool				 update( QList< QRect >& actions, QList< QPointF >& opaScale );
+	void				 startAnimation( int ms ) { durMs = ms, started = QTime::currentTime(); }
 
-	// friend
-	// QDebug operator<<( QDebug, const SuperPolator& );
-
-  private:
-	// Init-Helfer - wird fast überall benötigt und ist dank "Zugriffshelfer" inlinebar ;)
-	void startAnimation( int ms ) { durMs = ms, started = QTime::currentTime(); }
-	void copyCurrent2Source()
+	void				 copyCurrent2Source()
 	{
 		for ( auto& i : *this ) i.quelle() = i.aktuell();
 	}
+
+  private:
+	// Init-Helfer - wird fast überall benötigt und ist dank "Zugriffshelfer" inlinebar ;)
 	void  debugInitialValues( const char* dsc ) const;
 
 	// Variablen...
@@ -137,5 +144,4 @@ class SuperPolator : public QList< SPElem >
 	QTime started;		// falls gerade animiert wird, ist dies die gültige Startzeit
 	int	  durMs{ 100 }; // und dies hier wird die geplante Dauer der Animation sein.
 };
-
-// QDebug operator<<( QDebug, const SuperPolator& );
+inline QDebug operator<<( QDebug& d, SuperPolator& i );

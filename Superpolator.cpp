@@ -184,21 +184,22 @@ bool SuperPolator::update( QList< QRect >& actions, QList< QPointF >& opaScale )
 		auto  x	 = qMax( 0., qMin( 1., ( t - ii.t0 ) / ( ii.t1 - ii.t0 ) ) );
 		sst		 = [ & ]()
 		{
-			if ( ii.es < 1. ) return test( ii, t );
-			else return _mm256_set1_pd( x * x * ( -2 * x + 3 ) );
+			/*if ( ii.es < 1. ) return test( ii, t );
+			else */
+			return _mm256_set1_pd( x * x * ( -2. * x + 3. ) );
 		}();
 
 		// Interpolation
-		ii.aktuell() =
-			_mm256_fmadd_pd( ii.ziel(), sst, _mm256_fnmadd_pd( ii.quelle(), sst, ii.quelle() ) );
+		auto& cv = ii.aktuell();
+		cv = _mm256_fmadd_pd( ii.ziel(), sst, _mm256_fnmadd_pd( ii.quelle(), sst, ii.quelle() ) );
 
 		// Box berechnen
-		auto& a = actions[ i ];
-		a.setSize( ii.cs * ( QSize ) ii );
-		a.moveCenter( ( ii.cr * qSinCos( ii.ca ) ).toPoint() );
+		auto& a								 = actions[ i ];
 		auto& os							 = opaScale[ i ];
 		// 128Bit - Zuweisung für Opacity und Scale ...
-		*reinterpret_cast< __m128d* >( &os ) = *reinterpret_cast< __m128d* >( &ii.co );
+		*reinterpret_cast< __m128d* >( &os ) = _mm256_extractf128_pd( cv, 1 );
+		a.setSize( ( os.x() * QSizeF( ii ) ).toSize() );
+		a.moveCenter( ( cv.m256d_f64[ 0 ] * qSinCos( cv.m256d_f64[ 1 ] ) ).toPoint() );
 		// dbg.nospace() << "\n\t" << i << ": sst =" << sst.m256d_f64[ 0 ] << ", cur =" <<
 		// ii.aktuell()
 		//			  << ", produces box: " << a << os;
@@ -219,9 +220,12 @@ void SuperPolator::debugInitialValues( const char* dsc ) const
 #endif
 }
 
-// QDebug operator<<( QDebug d, const SuperPolator& i )
-//{
-//	QDebugStateSaver s( d );
-//	d << "PieData: r0 =" << i.r0 << "Duration" << i.durMs << "ms, started" << i.started;
-//	return d;
-// }
+inline QDebug operator<<( QDebug& d, SuperPolator& s )
+{
+	QDebugStateSaver ss( d );
+	d << "PieData: r0 =" << s.r() << "Duration" << s.durMs << "ms, started" << s.started;
+	for ( int i( 0 ), ic( s.count() ); i < ic; ++i )
+		d << "\n\t" << qSetFieldWidth( 2 ) << i << "anim:" << s[ i ].quelle() << "->"
+		  << s[ i ].ziel() << "now:" << s[ i ].aktuell();
+	return d;
+}

@@ -183,36 +183,37 @@ class QPieMenu : public QMenu
 	int				 _hoverId{ -1 }, _folgeId{ -1 }, _alertId{ -1 }, _laId{ -1 };
 	// Zeitanimationen
 	QBasicTimer		 _rectsAnimiert, _selRectAnimiert, _alertTimer, _kbdOvr;
-	QTime			 _selRectStart, _folgeBeginn;
-	int	  _folgeDauerMS; // beim Folgen kann es schnellere und langsamere Transitionen geben ...
-
-	qreal _folgeDW{ 0. };
-	QList< qreal >	 _hitDist;
-	PieSelectionRect _folge{ { 0, 0, 0, 0 }, Qt::GlobalColor::transparent }, _folgeStart,
-		_folgeStop;
+	QTime			 _selRectStart;
 	// showAsChild: quellmenu
-	QPieMenu *_causedMenu{ nullptr };
+	QPieMenu		*_causedMenu{ nullptr };
 
 	// -> Methoden:
 	// Style-Daten beschaffen (bei init und bei StyleChange)
-	void	  readStyleData();
+	void			 readStyleData();
 	// Die Größen der Boxen berechnen -> Grunddaten
-	void	  calculatePieDataSizes();
-	// Die Ruhepositionen berechnen
-	void	  calculateStillData();
+	void			 calculatePieDataSizes();
 	// Kleiner Helfer, den ich ggf. an mehreren Stellen brauche
-	qreal	  startR( int runde ) const;
-	void	  setState( PieMenuStatus s ) { qDebug() << "[[" << ( _state = s ) << "]]"; }
+	qreal			 startR( int runde ) const;
+	// Die Ruhepositionen berechnen
+	// Neuer Algorithmus: nutze StepBox, um die still-Daten zu berechnen
+	void			 createStillData();
+	// Spezialberechnungen:
+	void			 createZoom();
+	// Großer Helfer: berechne die nächste Box, gib das Delta zurück
+	qreal			 stepBox( int index, QRectF &rwsd, QSizeF &lastSz );
+	void			 makeZielStill( qreal r0 );
 
-	void	  makeState( PieMenuStatus s );
-	void	  showChild( int index );
-	void	  initVisible( bool show );
-	void	  initCloseBy( int newFID = -1 );
-	void	  initHover( int newHID = -1 );
-	void	  updateCurrentVisuals();
-	bool	  hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID );
+	void			 setState( PieMenuStatus s ) { qDebug() << "[[" << ( _state = s ) << "]]"; }
+	void			 showChild( int index );
+	void			 initVisible( bool show );
+	void			 initStill();
+	void			 initCloseBy( int newFID = -1 );
+	void			 initHover( int newHID = -1 );
+	void			 initActive();
+	void			 updateCurrentVisuals();
+	bool			 hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID );
 	// Ein kluger Hit-Test rechnet einfach - wir nutzen diese Signed Distance Function:
-	auto	  boxDistance( const auto &p, const auto &b ) const
+	auto			 boxDistance( const auto &p, const auto &b ) const
 	{
 		return qMax( qMax( b.left() - p.x(), p.x() - b.right() ),
 					 qMax( b.top() - p.y(), p.y() - b.bottom() ) );

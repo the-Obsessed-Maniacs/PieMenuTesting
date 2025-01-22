@@ -27,7 +27,14 @@ constexpr QPointF operator*( QPointF a, QPointF b )
 {
 	return { a.x() * b.x(), a.y() * b.y() };
 }
-
+constexpr QPointF asPointF( int v )
+{
+	return { qreal( v ), qreal( v ) };
+}
+constexpr QPointF asPointF( qreal v )
+{
+	return { v, v };
+}
 constexpr QPointF fromSize( const QSizeF &a )
 {
 	return { a.width(), a.height() };
@@ -269,9 +276,15 @@ class BestDelta
 		if ( d > 0 ) good = qMin( good, d );
 		else if ( d < 0 ) bad = qMax( bad, d );
 	}
+	template < double halfCircle >
+	__forceinline void addBoth( qreal a, bool halfOffs )
+	{
+		addAngle< halfCircle >( a ), addAngle< halfCircle >( qreal( halfOffs ) * halfCircle - a );
+	}
 	// Instanziierungen für die beiden Winkelmaße:
 	__forceinline void addDeg( qreal a ) { addAngle< 180.0 >( a ); }
 	__forceinline void addRad( qreal a ) { addAngle< M_PI >( a ); }
+	__forceinline void addRad2( qreal a, bool isAsin = false ) { addBoth< M_PI >( a, isAsin ); }
 
   private:
 	qreal good{ std::numeric_limits< qreal >::max() }, bad{ -std::numeric_limits< qreal >::max() },
