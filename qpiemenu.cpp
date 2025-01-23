@@ -581,13 +581,20 @@ void QPieMenu::createZoom()
 	int ac = actions().count(), ip = ( _folgeId + 1 ) % ac, im = ( _folgeId - 1 ) % ac;
 	if ( _data.count() != ac ) return;
 	// ich möchte das Element _folgeId auf Skalierungsfaktor 1.5 fahren und alle anderen Boxen
-	// ausweichen lassen
-	_data[ _folgeId ].ziel() = _mm256_setr_pd( _data.r(), _data[ _folgeId ].a, 1.25, 1. );
+	// ausweichen lassen - bisher scheint das leider nicht richtig zu funktionieren, vermutlich wird
+	// zum Ausweichen doch mehr Radius gebraucht.
+	_data[ _folgeId ].ziel() = _mm256_setr_pd( _data.r(), _data[ _folgeId ].a, 1., 1.25 );
 	auto t01				 = _mm_setr_pd( 0., 1. );
 	_data[ _folgeId ].t01()	 = t01;
 	QRectF rwsd0{ _data.r(), _data[ _folgeId ].a, 1., _initData.dir() }, rwsd{ rwsd0 }, nr;
 	QSizeF lstSz0{ QSizeF( _data[ _folgeId ] ) * 1.25 }, lstSz{ lstSz0 };
 	qreal  delta;
+#if 1
+	// Korrekturversuch: ich beginne erst einmal, alle anderen Items zurück zu setzen und nur
+	// _folgeId zu skalieren.
+	for ( ip = 0; ip < ac; ++ip )
+		if ( ip != _folgeId ) _data[ ip ].es = 1.;
+#else
 	// In dieser Situation ist die Ruhedatenberechnung längst passiert und die Boxen sind alle
 	// sichtbar auf dem Bildschirm.  Daher kann ich auf mehrere Prüfungen verzichten:
 	//  - needMorSpace wird (hoffentlich) nicht nötig sein - Ausweichstrategie, falls doch: Radius
@@ -608,6 +615,7 @@ void QPieMenu::createZoom()
 		rwsd.moveTop( rwsd.top() + delta );
 		_data[ im-- ].t01() = t01;
 	}
+#endif
 	operator<<( qDebug(), _data );
 }
 
@@ -634,7 +642,7 @@ qreal QPieMenu::stepBox( int index, QRectF &rwsd, QSizeF &lastSz )
 		{
 			// nächste Box berechnet - aktualisiere die "Laufvariablen"
 			i.er = rwsd.x();
-			rwsd.moveTop( ( i.ea = rwsd.y() + d ) );
+			rwsd.moveTop( i.ea = ( rwsd.y() + d ) );
 			i.es   = rwsd.width();
 			lastSz = ns;
 		}

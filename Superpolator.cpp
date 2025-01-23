@@ -182,12 +182,7 @@ bool SuperPolator::update( QList< QRect >& actions, QList< QPointF >& opaScale )
 		auto& ii = operator[]( i );
 		// x(t) Super-Smoothstep mit den gespeicherten Parametern ...
 		auto  x	 = qMax( 0., qMin( 1., ( t - ii.t0 ) / ( ii.t1 - ii.t0 ) ) );
-		sst		 = [ & ]()
-		{
-			/*if ( ii.es < 1. ) return test( ii, t );
-			else */
-			return _mm256_set1_pd( x * x * ( -2. * x + 3. ) );
-		}();
+		sst		 = _mm256_set1_pd( x * x * ( -2. * x + 3. ) );
 
 		// Interpolation
 		auto& cv = ii.aktuell();
@@ -198,7 +193,7 @@ bool SuperPolator::update( QList< QRect >& actions, QList< QPointF >& opaScale )
 		auto& os							 = opaScale[ i ];
 		// 128Bit - Zuweisung für Opacity und Scale ...
 		*reinterpret_cast< __m128d* >( &os ) = _mm256_extractf128_pd( cv, 1 );
-		a.setSize( ( os.x() * QSizeF( ii ) ).toSize() );
+		a.setSize( ( os.y() * QSizeF( ii ) ).toSize() );
 		a.moveCenter( ( cv.m256d_f64[ 0 ] * qSinCos( cv.m256d_f64[ 1 ] ) ).toPoint() );
 		// dbg.nospace() << "\n\t" << i << ": sst =" << sst.m256d_f64[ 0 ] << ", cur =" <<
 		// ii.aktuell()
