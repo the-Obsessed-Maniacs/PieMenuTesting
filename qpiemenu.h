@@ -203,17 +203,20 @@ class QPieMenu : public QMenu
 	qreal			 stepBox( int index, QRectF &rwsd, QSizeF &lastSz );
 	void			 makeZielStill( qreal r0 );
 
-	void			 setState( PieMenuStatus s ) { qDebug() << "[[" << ( _state = s ) << "]]"; }
-	void			 showChild( int index );
-	void			 initVisible( bool show );
-	void			 initStill();
-	void			 initCloseBy( int newFID = -1 );
-	void			 initHover( int newHID = -1 );
-	void			 initActive();
-	void			 updateCurrentVisuals();
-	bool			 hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID );
+	void			 setState( PieMenuStatus s )
+	{
+		qDebug() << "[[" << ( _state = s ) << "]]" << _folgeId << _hoverId;
+	}
+	void showChild( int index );
+	void initVisible( bool show );
+	void initStill();
+	void initCloseBy( int newFID = -1 );
+	void initHover( int newHID = -1 );
+	void initActive();
+	void updateCurrentVisuals();
+	bool hitTest( const QPoint &p, qreal &mindDistance, qint32 &minDistID );
 	// Ein kluger Hit-Test rechnet einfach - wir nutzen diese Signed Distance Function:
-	auto			 boxDistance( const auto &p, const auto &b ) const
+	auto boxDistance( const auto &p, const auto &b ) const
 	{
 		return qMax( qMax( b.left() - p.x(), p.x() - b.right() ),
 					 qMax( b.top() - p.y(), p.y() - b.bottom() ) );

@@ -188,12 +188,12 @@ bool SuperPolator::update( QList< QRect >& actions, QList< QPointF >& opaScale )
 		auto& cv = ii.aktuell();
 		cv = _mm256_fmadd_pd( ii.ziel(), sst, _mm256_fnmadd_pd( ii.quelle(), sst, ii.quelle() ) );
 
-		// Box berechnen
-		auto& a								 = actions[ i ];
-		auto& os							 = opaScale[ i ];
 		// 128Bit - Zuweisung für Opacity und Scale ...
-		*reinterpret_cast< __m128d* >( &os ) = _mm256_extractf128_pd( cv, 1 );
-		a.setSize( ( os.y() * QSizeF( ii ) ).toSize() );
+		auto& os = reinterpret_cast< __m128d& >( opaScale[ i ] );
+		os		 = _mm256_extractf128_pd( cv, 1 );
+		// Box berechnen
+		auto& a	 = actions[ i ];
+		a.setSize( ( os.m128d_f64[ 1 ] * QSizeF( ii ) ).toSize() );
 		a.moveCenter( ( cv.m256d_f64[ 0 ] * qSinCos( cv.m256d_f64[ 1 ] ) ).toPoint() );
 		// dbg.nospace() << "\n\t" << i << ": sst =" << sst.m256d_f64[ 0 ] << ", cur =" <<
 		// ii.aktuell()

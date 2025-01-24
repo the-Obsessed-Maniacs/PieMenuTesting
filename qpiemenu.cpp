@@ -257,8 +257,9 @@ void QPieMenu::mouseReleaseEvent( QMouseEvent *e )
 	qDebug() << "QPieMenu::mouseReleaseEvent(" << e << ")";
 	auto p		= e->pos() + _boundingRect.topLeft();
 	auto launch = e->buttons().testAnyFlags( Qt::RightButton | Qt::LeftButton );
-	if ( _state == PieMenuStatus::hover && // HitTest, wenn sich was bewegt hat ...
-		 ( p == _lastPos || boxDistance( p, _actionRects[ _hoverId ] ) <= 0. ) )
+	if ( ( _state == PieMenuStatus::hover ) && ( _hoverId > -1 ) &&
+		 // HitTest, wenn sich was bewegt hat ...
+		 ( ( p == _lastPos ) || ( boxDistance( p, _actionRects[ _hoverId ] ) <= 0. ) ) )
 	{
 		auto a = actions().at( _hoverId );
 		if ( auto am = qobject_cast< QPieMenu * >( a->menu() ) )
@@ -578,7 +579,7 @@ void QPieMenu::createStillData()
 
 void QPieMenu::createZoom()
 {
-	int ac = actions().count(), ip = ( _folgeId + 1 ) % ac, im = ( _folgeId - 1 ) % ac;
+	int ac = actions().count(), ip = _folgeId + 1, im = _folgeId - 1;
 	if ( _data.count() != ac ) return;
 	// ich möchte das Element _folgeId auf Skalierungsfaktor 1.5 fahren und alle anderen Boxen
 	// ausweichen lassen - bisher scheint das leider nicht richtig zu funktionieren, vermutlich wird
@@ -589,19 +590,14 @@ void QPieMenu::createZoom()
 	QRectF rwsd0{ _data.r(), _data[ _folgeId ].a, 1., _initData.dir() }, rwsd{ rwsd0 }, nr;
 	QSizeF lstSz0{ QSizeF( _data[ _folgeId ] ) * 1.25 }, lstSz{ lstSz0 };
 	qreal  delta;
-#if 1
-	// Korrekturversuch: ich beginne erst einmal, alle anderen Items zurück zu setzen und nur
-	// _folgeId zu skalieren.
-	for ( ip = 0; ip < ac; ++ip )
-		if ( ip != _folgeId ) _data[ ip ].es = 1.;
-#else
+
 	// In dieser Situation ist die Ruhedatenberechnung längst passiert und die Boxen sind alle
 	// sichtbar auf dem Bildschirm.  Daher kann ich auf mehrere Prüfungen verzichten:
 	//  - needMorSpace wird (hoffentlich) nicht nötig sein - Ausweichstrategie, falls doch: Radius
 	//  nur für diese Elemente etwas vergrößern - ist aber leider nicht mit der Datenstruktur
 	//  abbildbar, da ich die Radien für die Elemente nur animiere, aber nicht extra Standardwerte
 	//  speichere.
-	while ( ip < ac )
+	if ( ip < ac )
 	{
 		delta = stepBox( ip, rwsd, lstSz );
 		rwsd.moveTop( rwsd.top() + delta );
@@ -609,14 +605,13 @@ void QPieMenu::createZoom()
 	}
 	rwsd = rwsd0, lstSz = lstSz0;
 	rwsd.setHeight( _initData.dir( -1. ) );
-	while ( im >= 0 )
+	if ( im >= 0 )
 	{
 		delta = stepBox( im, rwsd, lstSz );
 		rwsd.moveTop( rwsd.top() + delta );
 		_data[ im-- ].t01() = t01;
 	}
-#endif
-	operator<<( qDebug(), _data );
+	// operator<<( qDebug(), _data );
 }
 
 qreal QPieMenu::stepBox( int index, QRectF &rwsd, QSizeF &lastSz )
@@ -778,6 +773,7 @@ void QPieMenu::initHover( int newHID )
 		r.setSize( 1.25 * r.size() );
 		r.moveCenter( p );
 		startSelRect( r );
+		createZoom();
 		if ( !sub ) // nicht schon aktiv?
 		{
 			// Und QMenu / die QActions brauchen noch
@@ -879,6 +875,7 @@ void QPieMenu::showAsChild( QPieMenu *source, QPoint pos, qreal minRadius, qreal
 	_initData._start0			 = startAngle;
 	_initData._max0				 = qAbs( dl );
 	_initData._negativeDirection = dl < 0.;
+	_causedMenu					 = source;
 	createStillData();
 	auto p = pos - QPointF{ _data.r(), _data.r() }.toPoint();
 	popup( p );
