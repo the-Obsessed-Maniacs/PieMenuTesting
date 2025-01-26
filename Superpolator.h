@@ -66,6 +66,8 @@
 #include <QRectF>
 #include <QTime>
 
+#define SCALE_MAX 1.35
+
 struct alignas( 128 ) SPElem
 {
 	int			   w, h;									// Standard-Größe des Elementes
@@ -134,6 +136,7 @@ class SuperPolator : public QList< SPElem >
 	{
 		for ( auto& i : *this ) i.quelle() = i.aktuell();
 	}
+	QDebug debug();
 
   private:
 	// Init-Helfer - wird fast überall benötigt und ist dank "Zugriffshelfer" inlinebar ;)
@@ -144,4 +147,3 @@ class SuperPolator : public QList< SPElem >
 	QTime started;		// falls gerade animiert wird, ist dies die gültige Startzeit
 	int	  durMs{ 100 }; // und dies hier wird die geplante Dauer der Animation sein.
 };
-inline QDebug operator<<( QDebug& d, SuperPolator& i );

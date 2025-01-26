@@ -203,6 +203,15 @@ bool SuperPolator::update( QList< QRect >& actions, QList< QPointF >& opaScale )
 	return ( ms >= durMs );
 }
 
+QDebug SuperPolator::debug()
+{
+	auto d = qDebug() << "PieData: r0 =" << r() << "Duration" << durMs << "ms, started" << started;
+	for ( int i( 0 ), ic( count() ); i < ic; ++i )
+		d << "\n\t" << qSetFieldWidth( 2 ) << i << "anim:" << operator[]( i ).quelle() << "->"
+		  << operator[]( i ).ziel() << "now:" << operator[]( i ).aktuell();
+	return d;
+}
+
 void SuperPolator::debugInitialValues( const char* dsc ) const
 {
 #ifdef DBG_ANIM_NUMERIC

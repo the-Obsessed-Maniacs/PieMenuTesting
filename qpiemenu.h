@@ -172,6 +172,9 @@ class QPieMenu : public QMenu
 	// Mouse / Pointer Device:
 	QPoint			 _lastPos;
 	qreal			 _lastDm, _lastDi;
+
+	qreal			 _lastW;
+	int				 _lastWi{ -1 };
 	// verschiedene "current IDs":
 	//  _hoverId ist im Endeffekt, was gerade gewählt ist - egal ob via KBD oder Mouse.
 	//  _folgeId verfolgen wir im Moment -> eigentlich Mumpitz, weil die Folge ja direkt aus dem
@@ -201,6 +204,8 @@ class QPieMenu : public QMenu
 	void			 createZoom();
 	// Großer Helfer: berechne die nächste Box, gib das Delta zurück
 	qreal			 stepBox( int index, QRectF &rwsd, QSizeF &lastSz );
+	// Grundsätzlich werden mit stepBox Zieldaten berechnet.
+	// Diese Funktion leitet aus den Zieldaten still-Daten ab.
 	void			 makeZielStill( qreal r0 );
 
 	void			 setState( PieMenuStatus s )

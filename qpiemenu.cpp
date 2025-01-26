@@ -120,17 +120,9 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 {
 	updateCurrentVisuals();
 	QStylePainter p( this );
-	p.translate( -_boundingRect.topLeft() );
 	QStyleOptionMenuItem opt;
 	auto				 ac = actions().count();
-
-	QPainterPath		 pp;
-	QRectF				 ab = { { -_data.r(), -_data.r() }, QPointF{ _data.r(), _data.r() } };
-	pp.arcTo( ab, -90 + qRadiansToDegrees( _data.first().a ),
-			  qRadiansToDegrees( qAbs( _data.last().a - _data.first().a )
-								 * ( _initData._negativeDirection ? -1. : 1. ) ) );
-	pp.closeSubpath();
-	p.fillPath( pp, _styleData.HLtransparent );
+	p.translate( -_boundingRect.topLeft() );
 
 	// SelectionRect
 	if ( _selRect.first.isValid() )
@@ -144,7 +136,7 @@ void QPieMenu::paintEvent( QPaintEvent *e )
 		p.drawRoundedRect( _selRect.first, r, r );
 	}
 
-	// Zum Schluss die Elemente drüberbügeln
+	// Elemente
 	for ( int i( 0 ); i < ac; ++i )
 	{
 		initStyleOption( &opt, actions().at( i ) );
@@ -186,11 +178,21 @@ void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 		// Finde die nächstgelegene Aktion und den Abstand zum Mittelpunkt durch den Hit-Test
 		int	  id( -1 );
 		// -> ich möchte einen kleinen, nicht-reaktiven Kreis rund um den Mittelpunkt bewahren
-		qreal r = _data.r();
+		qreal r = _data.r(), d2( std::numeric_limits< qreal >::max() ), tmpD;
 		bool  out =
 			_lastDm >= qMax( 0.5 * qMin( _avgSz.width(), _avgSz.height() ), 2. * _styleData.sp );
 		bool hit	 = hitTest( p, _lastDi, id );
 		bool closeBy = !hit && out && ( _lastDi <= 2 * r ) && ( id != -1 );
+		// Testaufgabe #26 - atan2-test => stelle die Winkel-nächste ID fest
+		auto _lastW	 = qAtan2( p.x(), p.y() );
+		_lastWi		 = -1;
+		for ( auto i( 0ll ), c( _data.count() ); i < c; ++i )
+			if ( !actions().at( i )->isSeparator()
+				 && d2 > ( tmpD = qAbs( distance< M_PI >( _lastW, _data[ i ].a ) ) ) )
+				d2 = tmpD, _lastWi = i;
+		if ( closeBy && _lastDi > fromSize( _actionRects[ id ].size() ).manhattanLength() * 0.5 )
+			id = _lastWi;
+		update();
 		// Alle Informationen sind beschafft und Schlussfolgerungen stehen bereit
 		switch ( _state )
 		{
@@ -581,14 +583,16 @@ void QPieMenu::createZoom()
 {
 	int ac = actions().count(), ip = _folgeId + 1, im = _folgeId - 1;
 	if ( _data.count() != ac ) return;
+	_rectsAnimiert.stop();
+	_data.copyCurrent2Source();
 	// ich möchte das Element _folgeId auf Skalierungsfaktor 1.5 fahren und alle anderen Boxen
 	// ausweichen lassen - bisher scheint das leider nicht richtig zu funktionieren, vermutlich wird
 	// zum Ausweichen doch mehr Radius gebraucht.
-	_data[ _folgeId ].ziel() = _mm256_setr_pd( _data.r(), _data[ _folgeId ].a, 1., 1.25 );
+	_data[ _folgeId ].ziel() = _mm256_setr_pd( _data.r(), _data[ _folgeId ].a, 1., SCALE_MAX );
 	auto t01				 = _mm_setr_pd( 0., 1. );
 	_data[ _folgeId ].t01()	 = t01;
 	QRectF rwsd0{ _data.r(), _data[ _folgeId ].a, 1., _initData.dir() }, rwsd{ rwsd0 }, nr;
-	QSizeF lstSz0{ QSizeF( _data[ _folgeId ] ) * 1.25 }, lstSz{ lstSz0 };
+	QSizeF lstSz0{ QSizeF( _data[ _folgeId ] ) * SCALE_MAX }, lstSz{ lstSz0 };
 	qreal  delta;
 
 	// In dieser Situation ist die Ruhedatenberechnung längst passiert und die Boxen sind alle
@@ -597,21 +601,20 @@ void QPieMenu::createZoom()
 	//  nur für diese Elemente etwas vergrößern - ist aber leider nicht mit der Datenstruktur
 	//  abbildbar, da ich die Radien für die Elemente nur animiere, aber nicht extra Standardwerte
 	//  speichere.
-	if ( ip < ac )
+	while ( ip < ac )
 	{
-		delta = stepBox( ip, rwsd, lstSz );
-		rwsd.moveTop( rwsd.top() + delta );
+		delta				= stepBox( ip, rwsd, lstSz );
 		_data[ ip++ ].t01() = t01;
 	}
 	rwsd = rwsd0, lstSz = lstSz0;
 	rwsd.setHeight( _initData.dir( -1. ) );
-	if ( im >= 0 )
+	while ( im >= 0 )
 	{
-		delta = stepBox( im, rwsd, lstSz );
-		rwsd.moveTop( rwsd.top() + delta );
+		delta				= stepBox( im, rwsd, lstSz );
 		_data[ im-- ].t01() = t01;
 	}
-	// operator<<( qDebug(), _data );
+	_data.startAnimation( _initData._animBaseDur );
+	_rectsAnimiert.start( 10, this );
 }
 
 qreal QPieMenu::stepBox( int index, QRectF &rwsd, QSizeF &lastSz )
@@ -738,26 +741,19 @@ void QPieMenu::initStill()
 
 void QPieMenu::initCloseBy( int newFID )
 {
-	if ( newFID != _folgeId )
+	_folgeId = newFID;
+	// Ziel des Folgemodus: das nächstgelegene Item etwas zu vergrößern
+	if ( newFID == -1 ) _data.initStill( _initData._animBaseDur >> 1 );
+	else
 	{
-		_folgeId = newFID;
-		// Ziel des Folgemodus: das nächstgelegene Item etwas zu vergrößern
-		if ( newFID == -1 ) _data.initStill( _initData._animBaseDur >> 1 );
-		else
-		{
-			_rectsAnimiert.stop();
-			_data.copyCurrent2Source();
-			createZoom();
-			_data.startAnimation( _initData._animBaseDur );
-			setState( PieMenuStatus::closeby );
-			_rectsAnimiert.start( 10, this );
-		}
+		createZoom();
+		setState( PieMenuStatus::closeby );
 	}
 }
 
 void QPieMenu::initHover( int newHID )
 {
-	auto sub = _state == PieMenuStatus::item_active;
+	auto sub = ( _state == PieMenuStatus::item_active );
 	if ( newHID == _hoverId && !sub ) return;
 	if ( newHID == -1 )
 	{
@@ -767,13 +763,14 @@ void QPieMenu::initHover( int newHID )
 		if ( !_kbdOvr.isActive() ) startSelRect( { 0, 0, -1, -1 } );
 		// Wenn Hover verlassen wird, muss der hover-Timer gestoppt werden.
 		_alertTimer.stop();
-	} else { // Was braucht die Selection Rect-Animation? -> Position und Farbe
-		auto r = _actionRects[ _hoverId = newHID ];
-		auto p = r.center();
-		r.setSize( 1.25 * r.size() );
-		r.moveCenter( p );
-		startSelRect( r );
+	} else
+	{ // Was braucht die Selection Rect-Animation? -> Position und Farbe
+	  // Dummerweise muss die Position vom Ziel aus berechnet werden!
+		_folgeId = _hoverId = newHID;
 		createZoom();
+		auto r = QRect{ {}, SCALE_MAX * QSize( _data[ _hoverId ] ) };
+		r.moveCenter( ( _data.r() * qSinCos( _data[ _hoverId ].a ) ).toPoint() );
+		startSelRect( r );
 		if ( !sub ) // nicht schon aktiv?
 		{
 			// Und QMenu / die QActions brauchen noch
@@ -796,10 +793,8 @@ void QPieMenu::initActive()
 	// Die _hoverId sollte vorab gesetzt werden.  Hier wird nur der Status durch das
 	// Selection Rect übernommen. Wenn der Timer für den Keyboard Override aktiv ist,
 	// war es eine Keyboard-Aktivierung.  Wenn nicht, ist der Submenu-Timer abgelaufen.
-	auto r = _actionRects[ _hoverId ];
-	auto p = r.center();
-	r.setSize( 1.25 * r.size() );
-	r.moveCenter( p );
+	auto r = QRect{ {}, SCALE_MAX * QSize( _data[ _hoverId ] ) };
+	r.moveCenter( ( _data.r() * qSinCos( _data[ _hoverId ].a ) ).toPoint() );
 	startSelRect( r );
 	if ( !_kbdOvr.isActive() ) showChild( _hoverId );
 	setState( PieMenuStatus::item_active );
