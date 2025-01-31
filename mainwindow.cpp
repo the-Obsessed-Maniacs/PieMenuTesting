@@ -553,7 +553,18 @@ void MainWindow::createMenus()
 	editMenu->addSeparator();
 	connect( editMenu, &QMenu::aboutToShow, this, &MainWindow::menuAbout2show );
 
-	helpMenu = menuBar()->addMenu( tr( "&Help" ) );
+	auto styleMenu = new QPieMenu( tr( "&Style" ) );
+	menuBar()->addMenu( styleMenu );
+	for ( auto i : QStyleFactory::keys() )
+	{
+		auto a = new QAction( i );
+		styleMenu->addAction( a );
+		connect( a, &QAction::triggered,
+				 [ i ]() { qApp->setStyle( QStyleFactory::create( i ) ); } );
+	}
+
+	helpMenu = new QPieMenu( tr( "&Help" ) );
+	menuBar()->addMenu( helpMenu );
 	helpMenu->addAction( aboutAct );
 	helpMenu->addAction( aboutQtAct );
 	//! [8]

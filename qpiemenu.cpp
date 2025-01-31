@@ -119,7 +119,7 @@ void QPieMenu::actionEvent( QActionEvent *event )
 void QPieMenu::paintEvent( QPaintEvent *e )
 {
 	updateCurrentVisuals();
-	QStylePainter p( this );
+	QStylePainter		 p( this );
 	QStyleOptionMenuItem opt;
 	auto				 ac = actions().count();
 	p.translate( -_boundingRect.topLeft() );
@@ -165,61 +165,67 @@ void QPieMenu::showEvent( QShowEvent *e )
 
 void QPieMenu::mouseMoveEvent( QMouseEvent *e )
 {
-	if ( _kbdOvr.isActive() ) return e->ignore();
-	// Nur, wenn es sich wirklich um eine Bewegung handelt, stelle ich die aktuellen Daten zur
-	// Verfügung und werte sie aus.
-	auto p = e->position().toPoint() + _boundingRect.topLeft();
-	if ( _lastPos != p )
+	auto acc = !_kbdOvr.isActive();
+	if ( acc )
 	{
-		_lastPos = p;
-		_lastDm	 = qSqrt( QPoint::dotProduct( p, p ) );
-		// Action Rects aktualisieren
-		updateCurrentVisuals();
-		// Finde die nächstgelegene Aktion und den Abstand zum Mittelpunkt durch den Hit-Test
-		int	  id( -1 );
-		// -> ich möchte einen kleinen, nicht-reaktiven Kreis rund um den Mittelpunkt bewahren
-		qreal r = _data.r(), d2( std::numeric_limits< qreal >::max() ), tmpD;
-		bool  out =
-			_lastDm >= qMax( 0.5 * qMin( _avgSz.width(), _avgSz.height() ), 2. * _styleData.sp );
-		bool hit	 = hitTest( p, _lastDi, id );
-		bool closeBy = !hit && out && ( _lastDi <= 2 * r ) && ( id != -1 );
-		// Testaufgabe #26 - atan2-test => stelle die Winkel-nächste ID fest
-		auto _lastW	 = qAtan2( p.x(), p.y() );
-		_lastWi		 = -1;
-		for ( auto i( 0ll ), c( _data.count() ); i < c; ++i )
-			if ( !actions().at( i )->isSeparator()
-				 && d2 > ( tmpD = qAbs( distance< M_PI >( _lastW, _data[ i ].a ) ) ) )
-				d2 = tmpD, _lastWi = i;
-		if ( closeBy && _lastDi > fromSize( _actionRects[ id ].size() ).manhattanLength() * 0.5 )
-			id = _lastWi;
-		update();
-		// Alle Informationen sind beschafft und Schlussfolgerungen stehen bereit
-		switch ( _state )
+		// Nur, wenn es sich wirklich um eine Bewegung handelt, stelle ich die aktuellen Daten zur
+		// Verfügung und werte sie aus.
+		auto p = e->position().toPoint() + _boundingRect.topLeft();
+		if ( _lastPos != p )
 		{
-			case PieMenuStatus::still:
-				// Der Priorität nach prüfen: hover, closeby
-				if ( hit ) initHover( id );
-				else if ( closeBy ) initCloseBy( id );
-				break;
-			case PieMenuStatus::closeby:
-				if ( hit ) initHover( id );
-				else if ( !closeBy ) initStill();
-				else if ( _folgeId != id ) initCloseBy( id );
-				break;
-			case PieMenuStatus::hover:
-				if ( !hit ) // Kein Hover mehr? Kann dennoch zu 2 anderen Stati wechseln...
-				{
-					initHover();
-					if ( closeBy ) initCloseBy( id );
-					else initStill();
-				} else if ( id != _hoverId ) initHover( id );
-				break;
-			// In allen anderen Stati ist hier (vorerst) nichts zu tun.
-			case PieMenuStatus::item_active: break;
-			default: break;
-		}
+			_lastPos = p;
+			_lastDm	 = qSqrt( QPoint::dotProduct( p, p ) );
+			// Action Rects aktualisieren
+			updateCurrentVisuals();
+			// Finde die nächstgelegene Aktion und den Abstand zum Mittelpunkt durch den Hit-Test
+			int	  id( -1 );
+			// -> ich möchte einen kleinen, nicht-reaktiven Kreis rund um den Mittelpunkt bewahren
+			qreal r	  = _data.r(), d2( std::numeric_limits< qreal >::max() ), tmpD;
+			bool  out = _lastDm
+					   >= qMax( 0.5 * qMin( _avgSz.width(), _avgSz.height() ), 2. * _styleData.sp );
+			bool hit	 = hitTest( p, _lastDi, id );
+			bool closeBy = !hit && out && ( _lastDi <= 2 * r ) && ( id != -1 );
+			// Testaufgabe #26 - atan2-test => stelle die Winkel-nächste ID fest
+			auto _lastW	 = qAtan2( p.x(), p.y() );
+			_lastWi		 = -1;
+			for ( auto i( 0ll ), c( _data.count() ); i < c; ++i )
+				if ( !actions().at( i )->isSeparator()
+					 && d2 > ( tmpD = qAbs( distance< M_PI >( _lastW, _data[ i ].a ) ) ) )
+					d2 = tmpD, _lastWi = i;
+			if ( closeBy
+				 && _lastDi > fromSize( _actionRects[ id ].size() ).manhattanLength() * 0.5 )
+				id = _lastWi;
+			// Alle Informationen sind beschafft und Schlussfolgerungen stehen bereit
+			switch ( _state )
+			{
+				case PieMenuStatus::still:
+					// Der Priorität nach prüfen: hover, closeby
+					if ( hit ) initHover( id );
+					else if ( closeBy ) initCloseBy( id );
+					else acc = false;
+					break;
+				case PieMenuStatus::closeby:
+					if ( hit ) initHover( id );
+					else if ( !closeBy ) initStill();
+					else if ( _folgeId != id ) initCloseBy( id );
+					else acc = false;
+					break;
+				case PieMenuStatus::hover:
+					if ( !hit ) // Kein Hover mehr? Kann dennoch zu 2 anderen Stati wechseln...
+					{
+						initHover();
+						if ( closeBy ) initCloseBy( id );
+						else initStill();
+					} else if ( id != _hoverId ) initHover( id );
+					break;
+				// In allen anderen Stati ist hier (vorerst) nichts zu tun.
+				case PieMenuStatus::item_active: [[fallthru]];
+				default: acc = false; break;
+			}
+			if ( acc ) update();
+		} else acc = false;
 	}
-	if ( _state == PieMenuStatus::hover || _lastDm < _avgSz.height() ) e->accept();
+	if ( acc ) e->accept();
 	else QWidget::mouseMoveEvent( e );
 }
 
@@ -227,6 +233,7 @@ void QPieMenu::mousePressEvent( QMouseEvent *e )
 {
 	if ( _kbdOvr.isActive() ) return e->ignore();
 	qDebug() << "QPieMenu::mousePressEvent(" << e << ")";
+	_mouseDown	= true;
 	auto p		= e->pos() + _boundingRect.topLeft();
 	auto launch = e->buttons().testAnyFlags( Qt::RightButton | Qt::LeftButton );
 	switch ( _state )
@@ -239,24 +246,23 @@ void QPieMenu::mousePressEvent( QMouseEvent *e )
 				startSelRectColorFade( c );
 				return e->accept();
 			} else {
-				e->ignore();
-				qDebug() << "hit test failed!";
+				return e->ignore();
+				// qDebug() << "hit test failed!";
 			}
-			break;
 		default: // Jeder Mouse-Press ausserhalb von Elementen ist dazu da, das Menu wieder zu
 				 // schließen.  Bin mir gerade nicht sicher, ob ich den Release besser abwarten
 				 // sollte...
 			initVisible( false );
-			e->accept();
-			break;
+			if ( _causedMenu ) _causedMenu->childHidden( this, false );
+			return e->accept();
 	}
-	QWidget::mousePressEvent( e );
 }
 
 void QPieMenu::mouseReleaseEvent( QMouseEvent *e )
 {
-	if ( _kbdOvr.isActive() ) return e->ignore();
+	if ( _kbdOvr.isActive() || !_mouseDown ) return e->ignore();
 	qDebug() << "QPieMenu::mouseReleaseEvent(" << e << ")";
+	_mouseDown	= false;
 	auto p		= e->pos() + _boundingRect.topLeft();
 	auto launch = e->buttons().testAnyFlags( Qt::RightButton | Qt::LeftButton );
 	if ( ( _state == PieMenuStatus::hover ) && ( _hoverId > -1 ) &&
@@ -271,9 +277,13 @@ void QPieMenu::mouseReleaseEvent( QMouseEvent *e )
 			setActiveAction( a );
 			a->activate( QAction::Trigger );
 			emit QMenu::triggered( a );
-			//			initVisible( false );
+			initVisible( false );
+			if ( _causedMenu ) _causedMenu->childHidden( this, true );
 		}
-	} else if ( _state != PieMenuStatus::hidden ) return QWidget::mouseReleaseEvent( e );
+	} else if ( _state != PieMenuStatus::hidden ) {
+		initVisible( false );
+		if ( _causedMenu ) _causedMenu->childHidden( this, false );
+	}
 	e->accept();
 }
 
@@ -665,7 +675,7 @@ void QPieMenu::showChild( int index )
 	auto r	= _actionRects[ index ];
 	auto a	= actions().at( index );
 	auto pm = ( r.center() - _boundingRect.topLeft() + pos() /**/ );
-	qDebug() << "show as child: p=" << r.center() << ", p_mapped=" << pm << ", myPos=" << pos()
+	qDebug() << "show child: p=" << r.center() << ", p_mapped=" << pm << ", myPos=" << pos()
 			 << ", myGeometry=" << geometry() << ", myBR=" << _boundingRect;
 	if ( auto cpm = qobject_cast< QPieMenu * >( a->menu() ) )
 	{
@@ -676,9 +686,9 @@ void QPieMenu::showChild( int index )
 		qDebug() << "-> popup QMenu ...";
 		m->popup( pm );
 	}
-	qDebug() << "show as child: showing done, setting action active" << a;
+	qDebug() << "show child: showing done, setting action active" << a;
 	setActiveAction( a );
-	qDebug() << "show as child: FINISHED!";
+	qDebug() << "show child: FINISHED!";
 }
 
 void QPieMenu::initVisible( bool show )
@@ -695,7 +705,7 @@ void QPieMenu::initVisible( bool show )
 				setGeometry( geometry().translated( _boundingRect.topLeft() ) );
 		QMenu::setVisible( true );
 		// Schalte die Animation zum Anzeigen ein
-		_data.initShowUp( _initData._animBaseDur * 4,
+		_data.initShowUp( _initData._animBaseDur,
 						  fromPar ? _initData._start0 + _initData.dir( 0.5 ) * _initData._max0
 								  : 0.f );
 		_rectsAnimiert.start( 10, this );
@@ -707,12 +717,8 @@ void QPieMenu::initVisible( bool show )
 		if ( _state == PieMenuStatus::hidden )
 		{
 			QMenu::setVisible( false );
-			if ( _causedMenu ) _causedMenu->childHidden( this );
-			setActiveAction( _hoverId == -1 ? nullptr : actions().at( _hoverId ) );
 		} else { // 1. Aufruf -> Anim starten, Zustand merken
-			_data.initHideAway( _initData._animBaseDur * 4, _laId > -1		? _laId
-															: _hoverId > -1 ? _hoverId
-																			: _folgeId );
+			_data.initHideAway( _initData._animBaseDur * 2, actionIndex( activeAction() ) );
 			_rectsAnimiert.start( 10, this );
 			auto c = _styleData.HLtransparent;
 			if ( _state == PieMenuStatus::hover )
@@ -757,7 +763,6 @@ void QPieMenu::initHover( int newHID )
 	if ( newHID == _hoverId && !sub ) return;
 	if ( newHID == -1 )
 	{
-		std::swap( _laId, _hoverId );
 		_hoverId = newHID;
 		// Das Selection-Rect "weganimieren"
 		if ( !_kbdOvr.isActive() ) startSelRect( { 0, 0, -1, -1 } );
@@ -876,9 +881,11 @@ void QPieMenu::showAsChild( QPieMenu *source, QPoint pos, qreal minRadius, qreal
 	popup( p );
 }
 
-void QPieMenu::childHidden( QPieMenu *child )
+void QPieMenu::childHidden( QPieMenu *child, bool hasTriggered )
 {
-	initHover( actionIndex( child->menuAction() ) );
+	qDebug() << "QPieMenu::childHidden" << hasTriggered;
+	if ( hasTriggered ) initVisible( false );
+	else initHover( actionIndex( child->menuAction() ) );
 }
 
 #pragma optimize( "t", on )

@@ -10,8 +10,6 @@
 #include "ui_mainwindow.h"
 
 #include <QAbstractGraphicsShapeItem>
-#include <QAbstractItemModel>
-#include <QMainWindow>
 #include <QPropertyAnimation>
 
 QT_BEGIN_NAMESPACE

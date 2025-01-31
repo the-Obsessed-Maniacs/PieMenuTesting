@@ -29,7 +29,7 @@ struct PieInitData
 	QPoint	_execPoint;
 	qreal	_start0{ qDegreesToRadians( 175 ) }, _max0{ qDegreesToRadians( 285 ) }, _minR{ 0. };
 	qreal	_selRectAlpha{ 0.5 };
-	quint32 _animBaseDur{ 250 }, _subMenuDelayMS{ 500 };
+	quint32 _animBaseDur{ 250 }, _subMenuDelayMS{ 750 };
 	bool	_negativeDirection{ true }, _isContext{ true }, _isSubMenu{ false };
 
 	void	init( QPoint menuExecPoint, bool isContextMenu = true )
@@ -55,35 +55,6 @@ inline QDebug operator<<( QDebug dbg, const PieSelectionRect &r )
 	dbg.nospace() << "PSR( " << r.first << ", " << r.second << " )";
 	return dbg;
 }
-
-// Helferklasse für Animationen für schöneren Zugriff auf den Distance-Arc.  Ich nutze den Fakt
-// aus, dass QRectF intern aus 4 qreal-Werten besteht - so lerpe ich ja zwischen 2 QRectFs hin-
-// und her ;) - und definiere einfach neue Zugriffsfunktionen.
-class DistArc
-{
-  public:
-	// Immer direkt auf einer Referenz arbeiten.  Das Objekt soll nur lokale Lebensdauer haben!
-	explicit DistArc( QRectF &rect )
-		: r( rect )
-	{}
-	DistArc()				   = delete;
-	DistArc( const DistArc & ) = delete;
-	qreal &a() { return ( *this )( 2 ); }
-	qreal &d() { return ( *this )( 3 ); }
-	qreal &r0() { return ( *this )( 0 ); }
-	qreal &r1() { return ( *this )( 1 ); }
-	qreal  a() const { return ( *this )( 2 ); }
-	qreal  d() const { return ( *this )( 3 ); }
-	qreal  r0() const { return ( *this )( 0 ); }
-	qreal  r1() const { return ( *this )( 1 ); }
-	qreal  a0() const { return a() - d(); }
-	qreal  a1() const { return a() + d(); }
-
-  private:
-	qreal  &operator()( int id ) { return reinterpret_cast< qreal * >( &r )[ id ]; }
-	qreal  &operator()( int id ) const { return reinterpret_cast< qreal * >( &r )[ id ]; }
-	QRectF &r;
-};
 #pragma endregion
 
 class QPieMenu : public QMenu
@@ -154,36 +125,28 @@ class QPieMenu : public QMenu
 	QSize			 _avgSz;
 	// Dies werden die "immer aktuellen" Action-Rects.  Dort hin werden die Actions gerendert.
 	QList< QRect >	 _actionRects;
-	// Zum Rendern brauche ich allerdings noch eine weitere Information: die Opacity.  Da ggf.
-	// auch die Scale eine Rolle spielen wird, mache ich gleich einen Punkt!
+	// Zum Rendern brauche ich allerdings noch weitere Informationen: Opacity und Scale
 	QList< QPointF > _actionRenderData;
-	// Sobald irgend etwas die aktuellen "_actionRects" invalidiert, wird dies gesetzt!
-	bool			 _actionRectsDirty{ true };
 	// Das Bounding-Rect wird beim Hinzufügen von Aktionen neu berechnet.  Da das Ergebnis dieser
 	// Berechnungen vom "Still" - also Ruhezustand - ausgeht, werden klare Margins hinzugefügt.
 	QRect			 _boundingRect;
 	// Das Selection Rect
-	bool			 _selRectDirty{ false };
 	PieSelectionRect _selRect, _srS, _srE;
-	// Variablen des Zustandsautomaten
-	// PieMenuState	*_stateEngine;
 
 	PieMenuStatus	 _state{ PieMenuStatus::hidden };
+	// Sobald irgend etwas die aktuellen "_actionRects" invalidiert, wird dies gesetzt!
+	bool			 _actionRectsDirty{ true };
+	bool			 _selRectDirty{ false };
+	bool			 _mouseDown{ false };
 	// Mouse / Pointer Device:
 	QPoint			 _lastPos;
 	qreal			 _lastDm, _lastDi;
-
-	qreal			 _lastW;
-	int				 _lastWi{ -1 };
 	// verschiedene "current IDs":
-	//  _hoverId ist im Endeffekt, was gerade gewählt ist - egal ob via KBD oder Mouse.
-	//  _folgeId verfolgen wir im Moment -> eigentlich Mumpitz, weil die Folge ja direkt aus dem
-	//          Mouse Move Event berechnet wird -> wo auch die ID berechnet wurde -> als Speicher
-	//          für Wechsel gut.
-	//  _alertId bei Mouse-Hover machen wir Submenüs bei längerem Hovern auf -> wenn die _hoverId
-	//  zwischendurch nicht gesprungen ist
-	//  _laId ... "last active id" -> jedes Mal wenn wir de-hovern, wird _laId gesetzt
-	int				 _hoverId{ -1 }, _folgeId{ -1 }, _alertId{ -1 }, _laId{ -1 };
+	//  _hoverId: ist im Endeffekt, was gerade gewählt ist - egal ob via KBD oder Mouse.
+	//  _folgeId: verfolgen wir im Moment -> muss vorgehalten werden falls die ID wechselt.
+	//  _alertId: bei Mouse-Hover mache ich Submenüs bei längerem Hovern auf, aber nur wenn die
+	//            _hoverId zwischendurch nicht gesprungen ist.
+	int				 _hoverId{ -1 }, _folgeId{ -1 }, _alertId{ -1 }, _lastWi{ -1 };
 	// Zeitanimationen
 	QBasicTimer		 _rectsAnimiert, _selRectAnimiert, _alertTimer, _kbdOvr;
 	QTime			 _selRectStart;
@@ -231,7 +194,7 @@ class QPieMenu : public QMenu
 	void startSelRectColorFade( const QColor &target_color );
 	void showAsChild( QPieMenu *source, QPoint pos, qreal minRadius, qreal startAngle,
 					  qreal endAngle );
-	void childHidden( QPieMenu *child );
+	void childHidden( QPieMenu *child, bool hasTriggered );
 	// -> Variablen - Windows-spezifisch:
 	//      das transparente Fenster sollte keinen Schatten werfen !0 => geschafft!
 	HWND _dropShadowRemoved{ nullptr };
