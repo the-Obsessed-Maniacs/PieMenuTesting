@@ -1,11 +1,31 @@
+###############################################################################
+#	PieMenuTesting - written by Stefan <St0fF> Kaps 2024 - 2025
+#	CMake Steuerung des Projektes.
+###############################################################################
+#   Diese Datei ist Teil von PieMenuTesting.
+#
+#   PieMenuTesting ist Freie Software: Sie können es unter den Bedingungen
+#   der GNU General Public License, wie von der Free Software Foundation,
+#   Version 3 der Lizenz oder (nach Ihrer Wahl) jeder neueren
+#   veröffentlichten Version, weiter verteilen und/oder modifizieren.
+#
+#   PieMenuTesting wird in der Hoffnung, dass es nützlich sein wird, aber
+#   OHNE JEDE GEWÄHRLEISTUNG, bereitgestellt; sogar ohne die implizite
+#   Gewährleistung der MARKTFÄHIGKEIT oder EIGNUNG FÜR EINEN BESTIMMTEN ZWECK.
+#   Siehe die GNU General Public License für weitere Details.
+#
+#   Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
+#   Programm erhalten haben. Wenn nicht, siehe <https://www.gnu.org/licenses/>.
+###############################################################################
+
 cmake_minimum_required(VERSION 3.16)
 
 project(PieMenuTesting VERSION 0.1 LANGUAGES CXX)
 
 option( DBG_EVENTS "Enable event-logging in QPieMenu" off )
 option( DBG_ANIM_NUMERIC "Enable numeric animation debugging in QPieMenu" off )
-#include( EnableIntrinsics.cmake )
-#add_compile_definitions( SIMDE_ARCH_X86_SVML )
+include( EnableIntrinsics.cmake )
+check_cpu( AVX2 __AVX2__ AVX2 avx2 )
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -33,8 +53,6 @@ set( PROJECT_SOURCES
 		BerechnungsModell.cpp
         qpiemenu.h
 		qpiemenu.cpp
-		FastTrigo/FastTrigo.h
-		FastTrigo/FastTrigo.cpp
 		Superpolator.h
 		Superpolator.cpp
 
@@ -50,7 +68,6 @@ endif()
 if ( ${DBG_ANIM_NUMERIC} )
 	add_definitions( -DDEBUG_ANIM_NUMERIC )
 endif()
-include_directories( FastTrigo )
 message( NOTICE "QT Version: ${QT_VERSION}" )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)

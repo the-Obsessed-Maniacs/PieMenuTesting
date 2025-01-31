@@ -1,8 +1,23 @@
-// Copyright (C) 2016 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
-
-#ifndef MAINWINDOW_H
-#define MAINWINDOW_H
+/******************************************************************************
+ *  PieMenuTesting - written by Stefan <St0fF> Kaps 2024 - 2025
+ *  mainwindow.h
+ ******************************************************************************
+ *  Diese Datei ist Teil von PieMenuTesting.
+ *
+ *  PieMenuTesting ist Freie Software: Sie können es unter den Bedingungen
+ *  der GNU General Public License, wie von der Free Software Foundation,
+ *  Version 3 der Lizenz oder (nach Ihrer Wahl) jeder neueren
+ *  veröffentlichten Version, weiter verteilen und/oder modifizieren.
+ *
+ *  PieMenuTesting wird in der Hoffnung, dass es nützlich sein wird, aber
+ *  OHNE JEDE GEWÄHRLEISTUNG, bereitgestellt; sogar ohne die implizite
+ *  Gewährleistung der MARKTFÄHIGKEIT oder EIGNUNG FÜR EINEN BESTIMMTEN ZWECK.
+ *  Siehe die GNU General Public License für weitere Details.
+ *
+ *  Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
+ *  Programm erhalten haben. Wenn nicht, siehe <https://www.gnu.org/licenses/>.
+ *****************************************************************************/
+#pragma once
 
 #include "BerechnungsModell.h"
 #include "Helpers.h"
@@ -20,7 +35,6 @@ class QMenu;
 class QGraphicsView;
 QT_END_NAMESPACE
 
-//! [0]
 class MainWindow
 	: public QMainWindow
 	, public Ui::MainWindow
@@ -159,6 +173,3 @@ class MainWindow
 	QGraphicsItemGroup			   c3_group;
 	QList< QPair< qreal, qreal > > data;
 };
-//! [3]
-
-#endif

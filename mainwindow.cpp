@@ -1,5 +1,22 @@
-// Copyright (C) 2016 The Qt Company Ltd.
-// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+/******************************************************************************
+ *  PieMenuTesting - written by Stefan <St0fF> Kaps 2024 - 2025
+ *  mainwindow.cpp
+ ******************************************************************************
+ *  Diese Datei ist Teil von PieMenuTesting.
+ *
+ *  PieMenuTesting ist Freie Software: Sie können es unter den Bedingungen
+ *  der GNU General Public License, wie von der Free Software Foundation,
+ *  Version 3 der Lizenz oder (nach Ihrer Wahl) jeder neueren
+ *  veröffentlichten Version, weiter verteilen und/oder modifizieren.
+ *
+ *  PieMenuTesting wird in der Hoffnung, dass es nützlich sein wird, aber
+ *  OHNE JEDE GEWÄHRLEISTUNG, bereitgestellt; sogar ohne die implizite
+ *  Gewährleistung der MARKTFÄHIGKEIT oder EIGNUNG FÜR EINEN BESTIMMTEN ZWECK.
+ *  Siehe die GNU General Public License für weitere Details.
+ *
+ *  Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
+ *  Programm erhalten haben. Wenn nicht, siehe <https://www.gnu.org/licenses/>.
+ *****************************************************************************/
 
 #include "mainwindow.h"
 
@@ -8,7 +25,6 @@
 #include <QtWidgets>
 #include <ranges>
 
-//! [0]
 MainWindow::MainWindow()
 	: QMainWindow()
 	, anim( this, "showTime", nullptr )
@@ -379,7 +395,6 @@ void MainWindow::contextMenuEvent( QContextMenuEvent *event )
 	qDebug() << "MENU finished..." << a;
 }
 
-//! [4]
 void MainWindow::createActions()
 {
 	//! [5]
@@ -523,22 +538,15 @@ void MainWindow::createActions()
 	leftAlignAct->setChecked( true );
 	//! [6]
 }
-//! [7]
 
-//! [8]
 void MainWindow::createMenus()
 {
-	//! [9] //! [10]
 	fileMenu = menuBar()->addMenu( tr( "&File" ) );
 	fileMenu->addAction( newAct );
-	//! [9]
 	fileMenu->addAction( openAct );
-	//! [10]
 	fileMenu->addAction( saveAct );
 	fileMenu->addAction( printAct );
-	//! [11]
 	fileMenu->addSeparator();
-	//! [11]
 	fileMenu->addAction( exitAct );
 	connect( fileMenu, &QMenu::aboutToShow, this, &MainWindow::menuAbout2show );
 
@@ -567,10 +575,8 @@ void MainWindow::createMenus()
 	menuBar()->addMenu( helpMenu );
 	helpMenu->addAction( aboutAct );
 	helpMenu->addAction( aboutQtAct );
-	//! [8]
 	connect( helpMenu, &QMenu::aboutToShow, this, &MainWindow::menuAbout2show );
 
-	//! [12]
 	formatMenu = new QPieMenu( tr( "&Format" ) );
 	editMenu->addMenu( formatMenu );
 	formatMenu->addAction( boldAct );
@@ -585,4 +591,3 @@ void MainWindow::createMenus()
 	formatMenu->addAction( setParagraphSpacingAct );
 	connect( formatMenu, &QMenu::aboutToShow, this, &MainWindow::menuAbout2show );
 }
-//! [12]
