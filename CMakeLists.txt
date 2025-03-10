@@ -18,21 +18,16 @@
 #   Programm erhalten haben. Wenn nicht, siehe <https://www.gnu.org/licenses/>.
 ###############################################################################
 
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required( VERSION 3.16 )
 
-project(PieMenuTesting VERSION 0.1 LANGUAGES CXX)
+project( PieMenuTesting VERSION 0.1 LANGUAGES CXX) 
 
-option( DBG_EVENTS "Enable event-logging in QPieMenu" off )
-option( DBG_ANIM_NUMERIC "Enable numeric animation debugging in QPieMenu" off )
-include( EnableIntrinsics.cmake )
-check_cpu( AVX2 __AVX2__ AVX2 avx2 )
+set( CMAKE_AUTOUIC ON )
+set( CMAKE_AUTOMOC ON )
+set( CMAKE_AUTORCC ON )
 
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set( CMAKE_CXX_STANDARD 20 )
+set( CMAKE_CXX_STANDARD_REQUIRED ON )
 
 set( QT_COMP Widgets Scxml )
 find_package( QT NAMES Qt6 Qt5 REQUIRED COMPONENTS ${QT_COMP} LinguistTools )
@@ -51,11 +46,6 @@ set( PROJECT_SOURCES
 		Helpers.h
 		BerechnungsModell.h
 		BerechnungsModell.cpp
-        qpiemenu.h
-		qpiemenu.cpp
-		Superpolator.h
-		Superpolator.cpp
-
         ${TS_FILES}
 )
 set( STATE_CHARTS
@@ -69,6 +59,8 @@ if ( ${DBG_ANIM_NUMERIC} )
 	add_definitions( -DDEBUG_ANIM_NUMERIC )
 endif()
 message( NOTICE "QT Version: ${QT_VERSION}" )
+
+add_subdirectory( QPieMenu )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(PieMenuTesting
@@ -100,7 +92,7 @@ else()
 endif()
 
 list( TRANSFORM QT_COMP PREPEND Qt${QT_VERSION_MAJOR}:: OUTPUT_VARIABLE QT_LIBS )
-target_link_libraries( PieMenuTesting PRIVATE ${QT_LIBS} )
+target_link_libraries( PieMenuTesting PRIVATE ${QT_LIBS} QPieMenu )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an
